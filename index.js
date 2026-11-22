@@ -266,6 +266,9 @@ export function apply(ctx, config = {}) {
         await github.setItemLists(plan.itemId, plan.to)
         store.markSynced(plan.nameWithOwner, plan.to)
       },
+      finish: async (running) => {
+        if (running.applied > 0) store.pushOp('sync', {}, `写回 GitHub：${running.applied} 个仓库的分类`)
+      },
     })
     return jobSnapshot()
   }
@@ -281,6 +284,15 @@ export function apply(ctx, config = {}) {
         await store.load()
         if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改归类')
         const touched = store.stage(payload.fullNames, { add: payload.add, remove: payload.remove })
+        if (touched > 0) {
+          const listName = (id) => store.state.lists.find((list) => list.id === id)?.name
+          const added = (payload.add ?? []).map(listName).filter(Boolean)
+          const removed = (payload.remove ?? []).map(listName).filter(Boolean)
+          const text = added.length > 0
+            ? `归入「${added.join('、')}」：${touched} 个仓库`
+            : removed.length > 0 ? `从「${removed.join('、')}」移出：${touched} 个仓库` : null
+          if (text) store.pushOp(added.length > 0 ? 'assign' : 'remove', {}, text)
+        }
         await store.save()
         return { touched, ...view() }
       }
@@ -316,8 +328,20 @@ export function apply(ctx, config = {}) {
         for (const [listId, names] of groups) {
           staged += store.stage(names, { add: [listId], remove: [] })
         }
+        if (staged > 0 || created > 0) {
+          store.pushOp('assign', {}, `采纳关键词建议：${staged} 个仓库进暂存${created > 0 ? `，新建 ${created} 个分类` : ''}`)
+        }
         await store.save()
         return { created, staged, kept, ...view() }
+      }
+      case 'watch': {
+        await store.load()
+        const names = [...new Set((payload.fullNames ?? []).filter((name) => typeof name === 'string'))]
+        if (names.length === 0) throw new GitHubError('invalid', '没有要跟踪的仓库')
+        const watch = Boolean(payload.watch)
+        store.setWatched(names, watch)
+        await store.save()
+        return view()
       }
       case 'plan': {
         // 只读：给预览层用。planSync 会顺手清掉「其实是 noop」的暂存，所以照样落盘。
@@ -354,7 +378,7 @@ export function apply(ctx, config = {}) {
             // 远端成功后本地立刻生效：用户点完就该看到它消失，而不是等下次刷新。
             store.dropRepo(target.nameWithOwner)
             store.markUnstarred(target.nameWithOwner)
-            store.pushChange('unstarred', target, `已取消 star：${target.nameWithOwner}`)
+            store.pushOp('unstarred', target, `已取消 star：${target.nameWithOwner}`)
           },
         })
         return { ...view(), job: jobSnapshot() }
@@ -403,6 +427,7 @@ export function apply(ctx, config = {}) {
             }
             await github.deleteList(listId)
             store.removeList(listId)
+            store.pushOp('deleteList', {}, `删除分类「${list.name}」${mode === 'move' ? `，成员移入「${store.state.lists.find((item) => item.id === targetListId)?.name ?? targetListId}」` : '，成员变未归类'}`)
             running.meta = { ...running.meta, deleted: true, listId, listName: list.name }
           },
         }, { listId, listName: list.name, mode, targetListId: targetListId || null })
@@ -540,6 +565,8 @@ export function apply(ctx, config = {}) {
           touched += store.stage(payload.unsorted.map(String), { add: [], remove: clear })
         }
         await store.save()
+        store.pushOp('organize', {}, `AI 整理：${touched} 个仓库进暂存${created > 0 ? `，新建 ${created} 个分类` : ''}`)
+        await store.save()
         return { touched, created, ...view() }
       }
       case 'createList': {
@@ -549,6 +576,7 @@ export function apply(ctx, config = {}) {
         const note = String(payload.description ?? '').trim() || 'dsh-stars 自动创建'
         const created = await github.createList(name, note, Boolean(payload.isPrivate))
         store.setList(created)
+        store.pushOp('createList', {}, `新建分类「${name}」`)
         await store.save()
         return view()
       }

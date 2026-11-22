@@ -33,8 +33,9 @@ async function makeStore(t) {
 }
 
 function seed(store, repos, lists = []) {
-  // 首次 applyFetch 只建立基线（hadBaseline=false），不会产生 new 变更。
-  return store.applyFetch({ repos, lists })
+  // 首次 applyFetch 只建立基线（hadBaseline=false），不会产生 new 记录。
+  const { ops, updates } = store.applyFetch({ repos, lists })
+  return [...ops, ...updates]
 }
 
 function starsChanges(changes) {
@@ -58,7 +59,9 @@ test('load：state 文件不存在时正常返回空白状态，不抛错', asyn
   const state = await store.load()
   assert.deepEqual(state.repos, {})
   assert.deepEqual(state.lists, [])
-  assert.deepEqual(state.changes, [])
+  assert.deepEqual(state.ops, [])
+  assert.deepEqual(state.updates, [])
+  assert.deepEqual(state.watched, {})
   assert.equal(state.snapshotAt, null)
   // 幂等：重复 load 返回同一状态对象。
   assert.equal(await store.load(), state)
@@ -114,9 +117,10 @@ test('applyFetch：首次抓取不产生 new，第二次抓取新增一个仓库
   assert.deepEqual(first, [])
 
   const second = store.applyFetch({ repos: [repo('a/one'), repo('a/two'), repo('a/three')], lists: [] })
-  assert.equal(second.length, 1)
-  assert.equal(second[0].kind, 'new')
-  assert.equal(second[0].nameWithOwner, 'a/three')
+  assert.equal(second.ops.length, 1)
+  assert.equal(second.ops[0].kind, 'new')
+  assert.equal(second.ops[0].nameWithOwner, 'a/three')
+  assert.deepEqual(second.updates, [])
 })
 
 test('applyFetch：归属归零——第二次抓取 lists 中没有原 list（数量 < 30）时仓库 lists 变成 []', async (t) => {
@@ -124,42 +128,44 @@ test('applyFetch：归属归零——第二次抓取 lists 中没有原 list（�
   await seed(store, [repo('a/x')], [{ id: 'L1', name: 'Work', repos: ['a/x'] }])
   assert.deepEqual(store.state.repos['a/x'].lists, ['L1'])
 
-  const changes = store.applyFetch({
+  const { ops } = store.applyFetch({
     repos: [repo('a/x')],
     lists: [{ id: 'L2', name: 'Other', repos: [] }],
   })
   assert.deepEqual(store.state.repos['a/x'].lists, [])
-  assert.equal(changes.filter((change) => change.kind === 'new').length, 0)
+  assert.equal(ops.filter((entry) => entry.kind === 'new').length, 0)
 })
 
 test('applyFetch：一次抓到 0 个仓库后，再抓新仓库仍然算 new（baselineAt 落盘）', async (t) => {
   const store = await makeStore(t)
   seed(store, [repo('a/one')])
   const cleared = store.applyFetch({ repos: [], lists: [] })
-  assert.deepEqual(cleared.map((change) => change.kind), ['gone'])
+  assert.deepEqual(cleared.ops.map((entry) => entry.kind), ['gone'])
   // 关键：中间这次空抓不应该把基线重置，否则下一批仓库会被当成「首次基线」吞掉 new。
-  const changes = store.applyFetch({ repos: [repo('a/two')], lists: [] })
-  assert.deepEqual(changes.map((change) => change.kind), ['new'])
+  const next = store.applyFetch({ repos: [repo('a/two')], lists: [] })
+  assert.deepEqual(next.ops.map((entry) => entry.kind), ['new'])
 })
 
 test('applyFetch：star 变化低于阈值（10 或 10%）不产生 stars，超过则产生且 delta 正确，同类变更只留一条', async (t) => {
   assert.equal(STAR_DELTA_MIN, 10)
   const store = await makeStore(t)
   await seed(store, [repo('a/star', { stars: 100 }), repo('a/pct', { stars: 200 })], [])
+  // 远端更新只对跟踪的仓库记录。
+  store.setWatched(['a/star', 'a/pct'], true)
 
   // a/star delta=5 < 10；a/pct delta=15 < 200 的 10%（20）：都静默。
   const quiet = store.applyFetch({
     repos: [repo('a/star', { stars: 105 }), repo('a/pct', { stars: 215 })],
     lists: [],
   })
-  assert.deepEqual(starsChanges(quiet), [])
+  assert.deepEqual(starsChanges(quiet.updates), [])
 
   // a/star delta=25 >= 10；a/pct delta=30 >= 20：各产生一条，delta 正确。
   const loud = store.applyFetch({
     repos: [repo('a/star', { stars: 130 }), repo('a/pct', { stars: 245 })],
     lists: [],
   })
-  const stars = starsChanges(loud)
+  const stars = starsChanges(loud.updates)
   assert.equal(stars.length, 2)
   assert.equal(stars.find((change) => change.nameWithOwner === 'a/star')?.delta, 25)
   assert.equal(stars.find((change) => change.nameWithOwner === 'a/pct')?.delta, 30)
@@ -169,22 +175,51 @@ test('applyFetch：star 变化低于阈值（10 或 10%）不产生 stars，超�
     repos: [repo('a/star', { stars: 137 }), repo('a/pct', { stars: 250 })],
     lists: [],
   })
-  assert.deepEqual(starsChanges(again), [])
-  const kept = store.state.changes.filter((change) => change.kind === 'stars')
+  assert.deepEqual(starsChanges(again.updates), [])
+  const kept = store.state.updates.filter((change) => change.kind === 'stars')
   assert.equal(kept.length, 2)
   assert.equal(kept.filter((change) => change.nameWithOwner === 'a/star').length, 1)
   assert.equal(kept.filter((change) => change.nameWithOwner === 'a/pct').length, 1)
+})
+
+test('applyFetch：没跟踪的仓库发新版本/新提交也不产生更新，跟踪后才开始记录', async (t) => {
+  const store = await makeStore(t)
+  await seed(store, [repo('a/followed'), repo('a/ignored')], [])
+
+  const quiet = store.applyFetch({
+    repos: [repo('a/followed', { latestRelease: { tagName: 'v1.0.0' } }), repo('a/ignored', { latestRelease: { tagName: 'v9.9.9' } })],
+    lists: [],
+  })
+  assert.deepEqual(quiet.updates, [])
+  assert.equal(store.view().updatesUnread, 0)
+
+  store.setWatched(['a/followed'], true)
+  const loud = store.applyFetch({
+    repos: [repo('a/followed', { latestRelease: { tagName: 'v1.1.0' } }), repo('a/ignored', { latestRelease: { tagName: 'v10.0.0' } })],
+    lists: [],
+  })
+  assert.deepEqual(loud.updates.map((entry) => entry.nameWithOwner), ['a/followed'])
+  assert.equal(store.view().updatesUnread, 1)
+  // 取消跟踪后不再累积。
+  store.setWatched(['a/followed'], false)
+  store.markViewed()
+  const after = store.applyFetch({
+    repos: [repo('a/followed', { latestRelease: { tagName: 'v1.2.0' } }), repo('a/ignored', { latestRelease: { tagName: 'v11.0.0' } })],
+    lists: [],
+  })
+  assert.deepEqual(after.updates, [])
+  assert.equal(store.view().updatesUnread, 0)
 })
 
 test('applyFetch：抓取结果中消失（取消 star）的仓库产生一条 gone 变更', async (t) => {
   const store = await makeStore(t)
   await seed(store, [repo('a/keep'), repo('a/gone')], [])
 
-  const changes = store.applyFetch({ repos: [repo('a/keep')], lists: [] })
-  assert.equal(changes.length, 1)
-  assert.equal(changes[0].kind, 'gone')
-  assert.equal(changes[0].nameWithOwner, 'a/gone')
-  assert.ok(changes[0].text.includes('a/gone'))
+  const { ops } = store.applyFetch({ repos: [repo('a/keep')], lists: [] })
+  assert.equal(ops.length, 1)
+  assert.equal(ops[0].kind, 'gone')
+  assert.equal(ops[0].nameWithOwner, 'a/gone')
+  assert.ok(ops[0].text.includes('a/gone'))
   assert.equal(store.state.repos['a/gone'], undefined)
 })
 
@@ -203,20 +238,36 @@ test('view：返回带 desired 的仓库、列表计数与未读数，markViewed
   assert.equal(view.lists[0].repos, undefined)
   assert.deepEqual(view.repos.map((item) => item.nameWithOwner), ['a/one', 'a/two'])
   assert.deepEqual(view.repos[0].desired, ['L1'])
-  assert.equal(view.unreadCount, 0)
+  assert.equal(view.updatesUnread, 0)
+  assert.deepEqual(view.watched, [])
+  assert.equal(view.repos[0].watched, false)
 
+  // 新出现的 star 属于「用户操作」，进操作记录，不算未读。
   store.applyFetch({
     repos: [repo('a/one'), repo('a/two'), repo('a/three')],
     lists: [{ id: 'L1', name: 'Work', repos: ['a/one', 'a/two'] }],
   })
   view = store.view()
-  assert.equal(view.unreadCount, 1)
-  assert.equal(view.changes.length, 1)
+  assert.equal(view.ops.length, 1)
+  assert.equal(view.ops[0].kind, 'new')
+  assert.equal(view.updatesUnread, 0)
+
+  // 跟踪之后，远端更新才进未读。
+  store.setWatched(['a/one'], true)
+  store.applyFetch({
+    repos: [repo('a/one', { latestRelease: { tagName: 'v2.0.0' } }), repo('a/two'), repo('a/three')],
+    lists: [{ id: 'L1', name: 'Work', repos: ['a/one', 'a/two'] }],
+  })
+  view = store.view()
+  assert.equal(view.updates.length, 1)
+  assert.equal(view.updates[0].kind, 'release')
+  assert.equal(view.updatesUnread, 1)
+  assert.equal(view.repos[0].watched, true)
 
   store.markViewed()
   view = store.view()
-  assert.equal(view.unreadCount, 0)
-  assert.ok(view.lastViewedAt)
+  assert.equal(view.updatesUnread, 0)
+  assert.ok(view.updatesViewedAt)
 })
 
 // ---- v0.2 数据模型：墓碑、结构操作、孤儿 ----
@@ -240,10 +291,10 @@ test('取消 star：markUnstarred 后的消失记成 unstarred，墓碑被消费
 
   store.markUnstarred('a/one')
   assert.ok(store.state.unstarredAt['a/one'])
-  const changes = store.applyFetch({ repos: [repo('a/two')], lists: [] })
-  assert.equal(changes.length, 1)
-  assert.equal(changes[0].kind, 'unstarred')
-  assert.ok(changes[0].text.includes('已取消 star'))
+  const { ops } = store.applyFetch({ repos: [repo('a/two')], lists: [] })
+  assert.equal(ops.length, 1)
+  assert.equal(ops[0].kind, 'unstarred')
+  assert.ok(ops[0].text.includes('已取消 star'))
   // 一次性语义：消费后删掉，避免下次误判。
   assert.equal(store.state.unstarredAt['a/one'], undefined)
 })
@@ -255,8 +306,8 @@ test('取消 star：没有墓碑、或墓碑已过期时仍然记成 gone', asyn
   // 过期墓碑（8 天前）
   store.markUnstarred('a/one')
   store.state.unstarredAt['a/one'] = new Date(Date.now() - 8 * 86_400_000).toISOString()
-  const changes = store.applyFetch({ repos: [repo('a/two')], lists: [] })
-  assert.equal(changes[0].kind, 'gone')
+  const { ops } = store.applyFetch({ repos: [repo('a/two')], lists: [] })
+  assert.equal(ops[0].kind, 'gone')
   assert.equal(store.state.unstarredAt['a/one'], undefined)
 })
 

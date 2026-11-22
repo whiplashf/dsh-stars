@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
       unstarProgress: '取消 star 进度',
       deleteListProgress: '删除分类进度',
       organize: 'AI 整理',
-      markReadHint: '把「变更」里的记录标成已读、未读数清零；只影响面板，不动 GitHub',
+      markReadHint: '把「更新」里的未读标成已读；只影响面板，不动 GitHub',
       organizeHint: '让模型按 star 的描述和 topics 建议分类（写回前还要你确认）',
       organizeModeTitle: '怎么整理？',
       organizeModeBody: (n) => `你已经有 ${n} 个分类。基于当前分类整理只会动未归类的仓库；完全重新整理会按 AI 的判断把所有 star 重新排一遍（写回前还要你确认）。`,
@@ -51,9 +51,19 @@ window.__ModuleLoader__.load({
       all: '全部',
       unsorted: '未归类',
       suggestHint: '建议分类',
-      changes: '变更记录',
-      changesSummary: (total, unread) => unread > 0 ? `共 ${total} 条记录 · ${unread} 条未读` : `共 ${total} 条记录`,
-      changesHint: '新 star、新版本、新提交、归档、star 涨跌、取消 star；「标记已读」只清未读数，不动 GitHub',
+      updates: '更新',
+      updatesSummary: (total, unread) => unread > 0 ? `共 ${total} 条更新 · ${unread} 条未读` : `共 ${total} 条更新`,
+      updatesHint: '只统计你跟踪的仓库：行右侧点 ☆ 跟踪后，它的新版本、新提交、归档、star 涨跌会出现在这里',
+      emptyUpdates: '还没有可看的更新。在列表里点行右侧的 ☆ 跟踪某个仓库，之后它的远端变化才会以未读提醒出现在这里。',
+      ops: '操作记录',
+      opsSummary: (total) => `共 ${total} 条操作记录：收藏、取消收藏、归类、同步、建删分类、AI 整理`,
+      opsHint: '只记录你在本插件里做过的事，不含远端仓库的更新；这里没有未读概念',
+      emptyOps: '还没有操作记录',
+      watch: '跟踪',
+      tracked: '跟踪中',
+      watchHint: '跟踪这个仓库的远端更新（新版本、新提交、归档、star 涨跌）',
+      unwatchHint: '不再跟踪这个仓库的远端更新',
+      trackedChip: (n) => `跟踪 ${n} 个`,
       lists: '列表',
       search: '搜索仓库名、描述或 topic',
       only: '筛选',
@@ -160,7 +170,7 @@ window.__ModuleLoader__.load({
       syncDone: 'Sync finished',
       progressMeta: (done, total, applied, failed) => `${done}/${total} processed · ${applied} written${failed > 0 ? ` · ${failed} failed` : ''}`,
       organize: 'AI organize',
-      markReadHint: 'Mark the changes feed as read; local only, GitHub untouched',
+      markReadHint: 'Mark the updates feed as read; local only, GitHub untouched',
       organizeHint: 'Let the model suggest lists from descriptions and topics',
       organizeModeTitle: 'How should it organize?',
       organizeModeBody: (n) => `You already have ${n} lists. Use them reclassifies only unsorted repos; rebuild rewrites every star.`,
@@ -183,9 +193,19 @@ window.__ModuleLoader__.load({
       all: 'All',
       unsorted: 'Unsorted',
       suggestHint: 'By suggestion',
-      changes: 'Change log',
-      changesSummary: (total, unread) => unread > 0 ? `${total} records · ${unread} unread` : `${total} records`,
-      changesHint: 'New stars, releases, commits, archived repos, star moves and unstarred repos. Mark read only clears the counter.',
+      updates: 'Updates',
+      updatesSummary: (total, unread) => unread > 0 ? `${total} updates · ${unread} unread` : `${total} updates`,
+      updatesHint: 'Only repos you track: hit ☆ on a row to follow its releases, commits, archive state and star moves.',
+      emptyUpdates: 'Nothing to show yet. Hit ☆ on a row to track a repository.',
+      ops: 'Activity',
+      opsSummary: (total) => `${total} entries: starring, unstarring, sorting, syncing, list changes, AI organize`,
+      opsHint: 'Only what you did in this panel; remote repo updates never land here',
+      emptyOps: 'No activity yet',
+      watch: 'Track',
+      tracked: 'Tracking',
+      watchHint: 'Track this repo: releases, commits, archive state, star moves',
+      unwatchHint: 'Stop tracking this repo',
+      trackedChip: (n) => `Tracking ${n}`,
       lists: 'Lists',
       search: 'Search name, description or topic',
       only: 'Filter',
@@ -228,6 +248,13 @@ window.__ModuleLoader__.load({
         archived: 'Archived',
         stars: 'Star count',
         gone: 'Unstarred',
+        unstarred: 'Unstarred',
+        assign: 'Sorted',
+        remove: 'Removed',
+        sync: 'Synced',
+        createList: 'New list',
+        deleteList: 'List deleted',
+        organize: 'AI organize',
       },
       errorPrefix: 'Failed',
     }
@@ -237,7 +264,7 @@ window.__ModuleLoader__.load({
 .stars-head{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none}
 .stars-headtext{display:flex;flex-direction:column;gap:2px;min-width:0}
 .stars-title{font-size:15px;font-weight:600;letter-spacing:.01em}
-.stars-meta{font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stars-meta{font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center}
 .stars-grow{flex:1}
 .stars-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;white-space:nowrap}
 .stars-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -338,7 +365,7 @@ window.__ModuleLoader__.load({
 .stars-dot{width:7px;height:7px;border-radius:50%;background:var(--stars-c,var(--dsw-alias-label-caption));flex:none;display:inline-block}
 .stars-headicon{color:var(--dsw-alias-state-warn-primary);flex:none}
 .stars-title{font-size:16px}
-.stars-metasep{color:var(--dsw-alias-label-caption);margin:0 2px}
+.stars-metasep{color:var(--dsw-alias-label-caption);margin:0 6px}
 .stars-unreadchip{border:0;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);margin-left:6px}
 .stars-unreadchip:hover{background:color-mix(in srgb,var(--dsw-alias-link) 22%,transparent)}
 .stars-railicon{width:14px;flex:none;text-align:center;font-size:11px;color:var(--dsw-alias-label-caption)}
@@ -363,6 +390,12 @@ window.__ModuleLoader__.load({
 .stars-changesum{margin:0 0 6px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .stars-emptyhint{display:flex;flex-direction:column;align-items:center;gap:6px;height:220px;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;padding:0 24px;line-height:1.7}
 .stars-progressfill{background:var(--dsw-alias-link)}
+.stars-track{opacity:0}
+.stars-track[data-on=true]{opacity:1;color:var(--dsw-alias-link)}
+.stars-track[data-on=true]:hover{color:var(--dsw-alias-link)}
+.stars-change[data-kind=assign] .stars-chip,.stars-change[data-kind=sync] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
+.stars-change[data-kind=remove] .stars-chip,.stars-change[data-kind=deleteList] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
+.stars-change[data-kind=organize] .stars-chip,.stars-change[data-kind=createList] .stars-chip{background:color-mix(in srgb,var(--stars-c4) 18%,transparent);color:var(--stars-c4)}
 `
 
     function ensureCss() {
@@ -587,7 +620,7 @@ window.__ModuleLoader__.load({
       const inTab = React.useMemo(() => {
         if (tab === 'all') return repos
         if (tab === 'unsorted') return repos.filter((repo) => (repo.desired ?? []).length === 0)
-        if (tab === 'changes') return []
+        if (tab === 'updates' || tab === 'ops') return []
         return repos.filter((repo) => (repo.desired ?? []).includes(tab))
       }, [repos, tab])
 
@@ -618,7 +651,10 @@ window.__ModuleLoader__.load({
         return sortRepos(filtered, sort)
       }, [chips, inTab, lang, query, sort, suggestFilter, suggestions])
 
-      const unread = data?.unreadCount ?? 0
+      const unread = data?.updatesUnread ?? 0
+      const updates = data?.updates ?? []
+      const ops = data?.ops ?? []
+      const watchedCount = (data?.watched ?? []).length
       const pendingCount = repos.filter((repo) => repo.pending?.add?.length || repo.pending?.remove?.length).length
       const unsortedCount = repos.filter((repo) => (repo.desired ?? []).length === 0).length
 
@@ -776,6 +812,15 @@ window.__ModuleLoader__.load({
         setNotice({ tone: 'ok', text: t('organizeApplied', value.touched ?? 0) })
       }
 
+      const toggleWatch = async (names, watch) => {
+        const value = await run({ action: 'watch', fullNames: names, watch })
+        setData(value)
+        setNotice({
+          tone: 'ok',
+          text: watch ? `已跟踪 ${names.length} 个仓库，之后它们的远端更新会提醒你` : `已取消跟踪 ${names.length} 个仓库`,
+        })
+      }
+
       const removeOrphan = async (listId, fullName) => {
         await run({ action: 'removeOrphan', listId, fullName })
         setNotice({ tone: 'ok', text: `已从分类移出 ${fullName}` })
@@ -803,7 +848,7 @@ window.__ModuleLoader__.load({
       const scopeMissing = authState === 'missing-user-scope'
       const authCommand = data.auth?.command ?? ''
 
-      const gotoChanges = () => { setTab('changes'); setSelected(new Set()) }
+      const gotoUpdates = () => { setTab('updates'); setSelected(new Set()) }
 
       const head = h('div', { className: 'stars-head' },
         h('span', { className: 'stars-headicon' }, h(StarIcon, { size: 18 })),
@@ -813,11 +858,15 @@ window.__ModuleLoader__.load({
             h('span', null, data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)}` : t('never')),
             h('span', { className: 'stars-metasep' }, '·'),
             h('span', null, `${data.repos.length} 个 star`),
+            watchedCount > 0
+              ? h('span', { className: 'stars-metasep' }, '·')
+              : null,
+            watchedCount > 0 ? h('span', null, t('trackedChip', watchedCount)) : null,
             unread > 0
               ? h('button', {
                 className: 'stars-unreadchip',
-                title: t('changesHint'),
-                onClick: gotoChanges,
+                title: t('updatesHint'),
+                onClick: gotoUpdates,
               }, t('unread', unread))
               : null)),
         h('div', { className: 'stars-grow' }),
@@ -900,8 +949,9 @@ window.__ModuleLoader__.load({
       const rail = h('div', { className: 'stars-rail' },
         railItem('all', t('all'), repos.length, { icon: '★' }),
         railItem('unsorted', t('unsorted'), unsortedCount, { icon: '◇' }),
-        // 这里只显示「未读」数：总数在变更页顶部写，两个数字各管各的，避免混淆。
-        railItem('changes', t('changes'), unread > 0 ? unread : null, { icon: '≡', tone: 'unread', title: t('changesHint') }),
+        // 「更新」的徽标是未读数（只算跟踪的仓库）；「操作记录」没有未读，显示总条数。
+        railItem('updates', t('updates'), unread > 0 ? unread : null, { icon: '⚑', tone: 'unread', title: t('updatesHint') }),
+        railItem('ops', t('ops'), ops.length, { icon: '≡', title: t('opsSummary', ops.length) }),
         h('div', { className: 'stars-railgroup' }, t('lists')),
         ...lists.map((list) => railItem(list.id, list.name, list.count ?? 0, { color: colorOf(list.name) })),
         h('div', {
@@ -937,7 +987,7 @@ window.__ModuleLoader__.load({
       h('option', { value: 'stars:desc' }, t('sortStars')),
       h('option', { value: 'name:asc' }, t('sortName')))
 
-      const toolbar = tab === 'changes' ? null : h('div', { className: 'stars-toolbar' },
+      const toolbar = tab === 'updates' || tab === 'ops' ? null : h('div', { className: 'stars-toolbar' },
         h('input', {
           className: 'stars-input',
           placeholder: t('search'),
@@ -969,6 +1019,17 @@ window.__ModuleLoader__.load({
             tab !== 'all' && tab !== 'unsorted'
               ? h('button', { className: 'stars-btn', onClick: () => stage([...selected], { remove: [tab] }).catch(() => {}) }, t('removeFrom'))
               : null,
+            h('button', {
+              className: 'stars-btn',
+              disabled: busy || syncing,
+              onClick: () => {
+                const names = [...selected]
+                const watch = names.some((name) => !repos.find((repo) => repo.nameWithOwner === name)?.watched)
+                toggleWatch(names, watch).catch(() => {})
+              },
+            }, selected.size > 0 && [...selected].every((name) => repos.find((repo) => repo.nameWithOwner === name)?.watched)
+              ? `${t('tracked')}（${selected.size}）`
+              : `${t('watch')}（${selected.size}）`),
             h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => askUnstar([...selected]) }, `取消 star（${selected.size}）`),
             h('button', { className: 'stars-btn', onClick: () => setSelected(new Set()) }, t('clearSelection')))
           : null,
@@ -995,20 +1056,22 @@ window.__ModuleLoader__.load({
             : null)
         : null
 
-      const changes = data.changes ?? []
-      const changeView = h('div', { className: 'stars-changes' },
+      const feed = (entries, summary, hint, empty) => h('div', { className: 'stars-changes' },
         h('div', { className: 'stars-changesum' },
-          h('div', null, t('changesSummary', changes.length, unread)),
-          h('div', null, t('changesHint'))),
-        changes.length === 0
-          ? h('div', { className: 'stars-emptyhint' }, h('div', null, t('emptyChanges')))
-          : changes.map((change) => h('div', { className: 'stars-change', key: change.id, 'data-kind': change.kind },
-            h('span', { className: 'stars-changedate' }, formatDate(change.at)),
-            h('span', { className: 'stars-chip' }, t('kinds')[change.kind] ?? change.kind),
-            change.url
-              ? h('a', { className: 'stars-repolink', href: change.url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12 } }, change.nameWithOwner)
-              : h('span', { className: 'stars-dim' }, change.nameWithOwner ?? ''),
-            h('span', { className: 'stars-dim' }, change.text))))
+          h('div', null, summary),
+          h('div', null, hint)),
+        entries.length === 0
+          ? h('div', { className: 'stars-emptyhint' }, h('div', null, empty))
+          : entries.map((entry) => h('div', { className: 'stars-change', key: entry.id, 'data-kind': entry.kind },
+            h('span', { className: 'stars-changedate' }, formatDate(entry.at)),
+            h('span', { className: 'stars-chip' }, t('kinds')[entry.kind] ?? entry.kind),
+            entry.url
+              ? h('a', { className: 'stars-repolink', href: entry.url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12 } }, entry.nameWithOwner)
+              : h('span', { className: 'stars-dim' }, entry.nameWithOwner ?? ''),
+            h('span', { className: 'stars-dim' }, entry.text))))
+
+      const updatesView = feed(updates, t('updatesSummary', updates.length, unread), t('updatesHint'), t('emptyUpdates'))
+      const opsView = feed(ops, t('opsSummary', ops.length), t('opsHint'), t('emptyOps'))
 
       const row = (repo, index) => {
         const suggested = suggestions[repo.nameWithOwner]
@@ -1067,6 +1130,13 @@ window.__ModuleLoader__.load({
                   repo.language)
                 : null,
               h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt)),
+              h('button', {
+                className: 'stars-rowact stars-track',
+                'data-on': String(Boolean(repo.watched)),
+                disabled: busy || syncing,
+                title: repo.watched ? t('unwatchHint') : t('watchHint'),
+                onClick: () => toggleWatch([repo.nameWithOwner], !repo.watched).catch(() => {}),
+              }, repo.watched ? `★ ${t('tracked')}` : `☆ ${t('watch')}`),
               h('button', {
                 className: 'stars-rowact',
                 disabled: busy || syncing,
@@ -1241,7 +1311,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'stars-main' },
             toolbar,
             distStrip,
-            tab === 'changes' ? changeView : table,
+            tab === 'updates' ? updatesView : tab === 'ops' ? opsView : table,
             currentList && orphanNames.length > 0
               ? h('div', { className: 'stars-orphans' },
                 h('button', { className: 'stars-orphantoggle', onClick: () => setOrphansOpen((prev) => !prev) },

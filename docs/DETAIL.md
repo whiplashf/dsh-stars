@@ -66,25 +66,35 @@ DSH 左侧栏的面板：把 GitHub star 归进 Lists，并告诉你自上次查
 - 取消 star 是仓库消失，不是归属变化；如果仓库是被别的设备取消的 star，变更记 `gone` 而不是 `unstarred`——区分「我点的」和「别处发生的」。
 - 孤儿成员不参与 `desiredLists` 的计算，只在所属分类下显示成灰色行，不会混进正常仓库列表。
 
-## 6. 变更追踪
+## 6. 快照比对
 
-每次抓取（打开面板超过 `minRefreshMs` 或手动点刷新）都会和上一次快照比对，产出七种变更：
+每次抓取（打开面板超过 `minRefreshMs` 或手动点刷新）都会和上一次快照比对，产出两类记录：
 
-| 类型 | 判定 |
-| --- | --- |
-| 新收藏 | 快照里新出现的仓库（首次抓取不产生） |
-| 新版本 | `latestRelease.tagName` 变了，或从无到有 |
-| 新提交 | `pushedAt` 变新且没有新版本 |
-| 归档 | `isArchived` 从 false 变 true |
-| Star 变化 | `stargazerCount` 有增减，记录增量 |
-| 取消收藏 | 上次有、这次没了；自己取消的记 `unstarred`，别处取消的记 `gone` |
-| 已取消 star（本地） | 本机点了「取消 star」后立刻记，不等抓取 |
+| 事件 | 去向 | 判定 |
+| --- | --- | --- |
+| 新收藏 | 操作记录 | 快照里新出现的仓库（首次抓取不产生） |
+| 取消收藏 | 操作记录 | 上次有、这次没了；本机点「取消 star」的记 `unstarred`，别处取消的记 `gone` |
+| 新版本 | 更新（仅跟踪仓库） | `latestRelease.tagName` 变了，或从无到有 |
+| 新提交 | 更新（仅跟踪仓库） | `pushedAt` 变新且没有新版本 |
+| 归档 | 更新（仅跟踪仓库） | `isArchived` 从 false 变 true |
+| Star 变化 | 更新（仅跟踪仓库） | `stargazerCount` 有增减，记录增量 |
 
-Star 数每天小幅波动很正常，只有涨跌超过 `STAR_DELTA_MIN`（10 个）或该仓库 star 数的 10% 才登记，避免淹没真正的代码变更。
+Star 数每天小幅波动很正常，只有涨跌超过 `STAR_DELTA_MIN`（10 个）或该仓库 star 数的 10% 才登记，避免淹没真正的代码变更。两类记录各最多 400 条；同一仓库的同一种事件只留最新一条。
 
-变更最多保留 400 条。「变更」页之外，点「标记已读」把未读数清零。
+## 7. 两本账：操作记录 vs 更新
 
-## 7. AI 整理
+| | 操作记录（左栏 `≡`） | 更新（左栏 `⚑`） |
+| --- | --- | --- |
+| 内容 | 用户在这个面板里做的事：收藏/取消收藏、归类、移出、同步、建删分类、AI 整理 | 远端仓库的变化：新版本、新提交、归档、star 涨跌 |
+| 来源 | `store.pushOp()` 在动作成功后立刻写 | `applyFetch()` 比对前后快照生成 |
+| 过滤 | 无 | 只记 `state.watched` 里的仓库；默认空 = 不跟踪 |
+| 未读 | 没有该概念 | `updatesViewedAt` 之后产生的条目 |
+
+- `state.version` 升到 2；`load()` 见到 v1 会把旧的 `changes` 按 kind 拆进 `ops` / `updates`，并把 `watched` 清空、所有历史更新标记已读（语义变了，旧的未读数没有意义），随后立刻落盘，避免下次启动又「升级」一次。
+- 跟踪开关走 `{action:'watch', fullNames, watch}`：单行点 `☆`、多选点「跟踪」；顶部显示「跟踪 N 个」。
+- 未读只来自 `updates`：`markViewed()` 只写 `updatesViewedAt`，不影响操作记录。
+
+## 8. AI 整理
 
 - 入口是右上角的「✦ AI 整理」。已经有分类时先问一句：**基于当前分类整理**（`mode: reuse`，只动未归类的仓库）还是**完全重新整理**（`mode: rebuild`，所有 star 重排）；一个分类都没有就直接按全部 star 出方案。
 - 模型来自宿主本身：`ctx.get('llm')` → `listProviders()` / `listModels()`，`prepareCall({ provider, model, maxTokens })` 拿到流，再按 `text-delta` 累积成一段文本。可以用 `organizeProvider` / `organizeModel` 钉死路由，不填就用第一个能报出模型的提供商。
@@ -93,14 +103,14 @@ Star 数每天小幅波动很正常，只有涨跌超过 `STAR_DELTA_MIN`（10 �
 - 模型只出方案：结果对话框显示分组、新建标记、保持未归类的数量与「由哪个模型生成」，点「应用到暂存」才写进 `stage`，之后仍要过预览 + 同步。一次调用实测 9–20 秒（26 个仓库、`deepseek-flash`），所以对话框里带进度文案。
 - 扩展名/依赖都没有：不 `import '@deepseek-ai/dsh-llm'`，因为插件装在 `link:` 目录里解析不到 DSH 的 node_modules。
 
-## 8. 统计口径
+## 9. 统计口径
 
-- 顶部显示快照时间、star 总数、未读变更；
+- 顶部显示快照时间、star 总数、跟踪数量、未读更新数；
 - 底部一行：star 数、Lists 数、未归类数、上次查看时间、GitHub 列表页入口；
 - 分类页底部的孤儿数是分类成员数的一部分（与 GitHub 一致），但那些仓库不在 star 列表里，所以「分类计数之和 + 未归类」可能大于 star 总数；
 - 「只看一年未更新」用 `pushedAt` 判定，阈值是 `config.staleDays`（默认 365）。
 
-## 9. 边界与取舍
+## 10. 边界与取舍
 
 - 面板不写 GitHub token，也不直连 GitHub：所有请求走宿主的 `/api/dsh-stars`，宿主用已登录的 `gh` CLI。
 - 子进程环境做过裁剪（只留 `PATH`/`HOME`/`LANG`/`LOCALE`/`TZ`/`TERM`/`GH_*`，剔除含 `TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的变量），防止把 profile 里的密钥漏给 `gh`。

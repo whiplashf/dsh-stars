@@ -6,6 +6,10 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 export const MAX_CHANGES = 400
+/** 用户自己的操作记录（左栏「操作记录」）。 */
+export const OPS_KINDS = new Set(['new', 'unstarred', 'gone', 'assign', 'remove', 'sync', 'createList', 'deleteList', 'organize'])
+/** 远端仓库的更新（只对用户跟踪的仓库记录，未读数也只看这里）。 */
+export const UPDATE_KINDS = new Set(['release', 'commits', 'archived', 'stars'])
 /** star 数变化小于该绝对值时不登记为变更。 */
 export const STAR_DELTA_MIN = 10
 /** 取消 star 的墓碑保留时长：超过这个时间的「仓库消失」不再算手动取消。 */
@@ -13,15 +17,21 @@ export const UNSTARRED_TTL_MS = 7 * 86_400_000
 
 export function blankState() {
   return {
-    version: 1,
+    // v2：把「变更」拆成 ops（用户操作）与 updates（跟踪仓库的远端更新）。
+    version: 2,
     viewer: null,
     lists: [],
     repos: {},
     order: [],
     snapshotAt: null,
     baselineAt: null,
-    lastViewedAt: null,
-    changes: [],
+    // 操作记录：用户主动做过的事（收藏/取消收藏/归类/同步/建删分类/AI 整理）。
+    ops: [],
+    // 远端更新：只记录被跟踪的仓库（release/commits/archived/star 涨跌）。
+    updates: [],
+    // 跟踪的仓库：默认空 = 不跟踪，任何远端变化都不进未读。
+    watched: {},
+    updatesViewedAt: null,
     // 本面板取消 star 时会先记一笔，下次抓取才能把 unstarred 和「在别处取消的」区分开。
     unstarredAt: {},
   }
@@ -94,8 +104,22 @@ export class Store {
           ...parsed,
           repos: parsed.repos && typeof parsed.repos === 'object' ? parsed.repos : {},
           lists: Array.isArray(parsed.lists) ? parsed.lists : [],
-          changes: Array.isArray(parsed.changes) ? parsed.changes : [],
         }
+        // v0.4 之前只有一个 changes 列表；读盘时按 kind 拆成「操作记录」和「远端更新」。
+        const legacy = Array.isArray(parsed.changes) ? parsed.changes : []
+        this.#state.ops = Array.isArray(parsed.ops) ? parsed.ops : legacy.filter((entry) => OPS_KINDS.has(entry?.kind))
+        this.#state.updates = Array.isArray(parsed.updates) ? parsed.updates : legacy.filter((entry) => UPDATE_KINDS.has(entry?.kind))
+        if (!this.#state.watched || typeof this.#state.watched !== 'object') this.#state.watched = {}
+        // 语义变了（未读现在只算「跟踪仓库的远端更新」），迁移过来的历史记录一律按已读处理。
+        // v2 语义变了（未读现在只算「跟踪仓库的远端更新」）：从旧模型升上来的历史一律按已读处理。
+        const upgraded = Number(parsed.version ?? 1) < 2
+        this.#state.updatesViewedAt = parsed.updatesViewedAt ?? parsed.lastViewedAt ?? null
+        if (upgraded) {
+          this.#state.watched = {}
+          this.#state.updatesViewedAt = new Date().toISOString()
+        }
+        delete this.#state.changes
+        delete this.#state.lastViewedAt
       }
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error
@@ -111,14 +135,23 @@ export class Store {
       list.count = list.repos.length
     }
     // 旧版本把每次 +1 star 都记成变更；读盘时清掉这些噪声，只留阈值以上的涨跌。
-    const seen = new Set()
-    this.#state.changes = this.#state.changes.filter((change) => {
-      if (change?.kind === 'stars' && Math.abs(Number(change.delta) || 0) < STAR_DELTA_MIN) return false
-      const key = `${change?.kind}:${change?.nameWithOwner}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    const clean = (list) => {
+      const seen = new Set()
+      return list.filter((change) => {
+        if (change?.kind === 'stars' && Math.abs(Number(change.delta) || 0) < STAR_DELTA_MIN) return false
+        const key = `${change?.kind}:${change?.nameWithOwner}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+    this.#state.ops = clean(this.#state.ops ?? [])
+    this.#state.updates = clean(this.#state.updates ?? [])
+    // 升级过就立刻落盘，否则下次启动还会被当成 v1 再「升级」一次，把跟踪设置清空。
+    if (this.#state.version !== 2) {
+      this.#state.version = 2
+      await this.save()
+    }
     return this.#state
   }
 
@@ -158,7 +191,9 @@ export class Store {
 
     const next = {}
     const order = []
-    const changes = []
+    const ops = []
+    const updates = []
+    const isWatched = (name) => Boolean(this.#state.watched?.[name])
 
     for (const repo of fetched.repos ?? []) {
       const name = repo.nameWithOwner
@@ -177,22 +212,24 @@ export class Store {
       order.push(name)
 
       if (!old) {
-        if (hadBaseline) changes.push(changeEntry('new', merged, `新收藏：${name}`))
+        if (hadBaseline) ops.push(changeEntry('new', merged, `新收藏：${name}`))
         continue
       }
+      // 远端更新只记跟踪的仓库；没跟踪的仓库就算发了新版本也不打扰。
+      if (!isWatched(name)) continue
       const oldTag = old.latestRelease?.tagName ?? null
       const newTag = merged.latestRelease?.tagName ?? null
       if (newTag && newTag !== oldTag) {
-        changes.push(changeEntry('release', merged, oldTag ? `新版本 ${newTag}（原 ${oldTag}）` : `首次发布 ${newTag}`, { tag: newTag }))
+        updates.push(changeEntry('release', merged, oldTag ? `新版本 ${newTag}（原 ${oldTag}）` : `首次发布 ${newTag}`, { tag: newTag }))
       } else if (merged.pushedAt && old.pushedAt && merged.pushedAt !== old.pushedAt && Date.parse(merged.pushedAt) > Date.parse(old.pushedAt)) {
-        changes.push(changeEntry('commits', merged, `有新提交（${merged.pushedAt.slice(0, 10)}）`))
+        updates.push(changeEntry('commits', merged, `有新提交（${merged.pushedAt.slice(0, 10)}）`))
       }
-      if (merged.archived && !old.archived) changes.push(changeEntry('archived', merged, '仓库已归档'))
+      if (merged.archived && !old.archived) updates.push(changeEntry('archived', merged, '仓库已归档'))
       // star 数每天都会小幅波动，只有涨跌超过阈值才值得提示，避免淹没真正的代码变更。
       const delta = (merged.stars ?? 0) - (old.stars ?? 0)
       const starThreshold = Math.max(STAR_DELTA_MIN, Math.round((old.stars ?? 0) * 0.1))
       if (Math.abs(delta) >= starThreshold) {
-        changes.push(changeEntry('stars', merged, `star ${delta > 0 ? '+' : ''}${delta}`, { delta }))
+        updates.push(changeEntry('stars', merged, `star ${delta > 0 ? '+' : ''}${delta}`, { delta }))
       }
     }
 
@@ -202,7 +239,7 @@ export class Store {
       // 否则用户点完取消 star 再刷新，会看到一条莫名其妙的「已取消 star」变更。
       const tomb = this.#state.unstarredAt?.[name]
       const mine = tomb && now - Date.parse(tomb) < UNSTARRED_TTL_MS
-      changes.push(changeEntry(
+      ops.push(changeEntry(
         mine ? 'unstarred' : 'gone',
         { nameWithOwner: name, url: prev[name]?.url },
         mine ? `已取消 star：${name}` : `已不在星标里：${name}（可能在其他设备取消）`,
@@ -226,13 +263,14 @@ export class Store {
     this.#state.viewer = fetched.viewer ?? this.#state.viewer
     this.#state.snapshotAt = new Date().toISOString()
     this.#state.baselineAt ??= this.#state.snapshotAt
-    // 同一个仓库的同一种变更只留最新一条：反复刷新时不会堆出一串重复的「有新提交」。
-    const fresh = new Set(changes.map((change) => `${change.kind}:${change.nameWithOwner}`))
-    this.#state.changes = [
-      ...changes,
-      ...this.#state.changes.filter((change) => !fresh.has(`${change.kind}:${change.nameWithOwner}`)),
-    ].slice(0, MAX_CHANGES)
-    return changes
+    // 同一个仓库的同一种记录只留最新一条：反复刷新时不会堆出一串重复的「有新提交」。
+    const merge = (incoming, existing) => {
+      const fresh = new Set(incoming.map((entry) => `${entry.kind}:${entry.nameWithOwner}`))
+      return [...incoming, ...existing.filter((entry) => !fresh.has(`${entry.kind}:${entry.nameWithOwner}`))].slice(0, MAX_CHANGES)
+    }
+    this.#state.ops = merge(ops, this.#state.ops ?? [])
+    this.#state.updates = merge(updates, this.#state.updates ?? [])
+    return { ops, updates }
   }
 
   /** 在本地暂存一次归类；只改 pending，不碰 GitHub。 */
@@ -300,19 +338,26 @@ export class Store {
     return created
   }
 
+  /** 只清「远端更新」的未读；操作记录没有未读概念。 */
   markViewed() {
-    this.#state.lastViewedAt = new Date().toISOString()
+    this.#state.updatesViewedAt = new Date().toISOString()
   }
 
-  /** 直接在变更流里插一条（取消 star 这类「用户自己刚做的」不能等下次抓取才显示）。 */
-  pushChange(kind, repo, text, extra = {}) {
+  /** 直接在操作记录里插一条（取消 star、归类、同步这类「用户刚做的」不能等下次抓取才显示）。 */
+  pushOp(kind, repo, text, extra = {}) {
     const entry = changeEntry(kind, repo, text, extra)
-    const key = `${kind}:${repo?.nameWithOwner ?? ''}`
-    this.#state.changes = [
-      entry,
-      ...this.#state.changes.filter((change) => `${change.kind}:${change.nameWithOwner}` !== key),
-    ].slice(0, MAX_CHANGES)
+    this.#state.ops = [entry, ...(this.#state.ops ?? [])].slice(0, MAX_CHANGES)
     return entry
+  }
+
+  /** 跟踪 / 取消跟踪：只有跟踪的仓库，远端更新才会进未读。 */
+  setWatched(names, watched) {
+    if (!this.#state.watched || typeof this.#state.watched !== 'object') this.#state.watched = {}
+    for (const name of names ?? []) {
+      if (watched) this.#state.watched[name] = new Date().toISOString()
+      else delete this.#state.watched[name]
+    }
+    return Object.keys(this.#state.watched)
   }
 
   /** 取消 star 成功后：仓库从本地快照里彻底消失（连同它的暂存与分类归属）。 */
@@ -387,19 +432,22 @@ export class Store {
       count: list.repos?.length ?? list.count ?? 0,
     }))
     const repos = (this.#state.order ?? Object.keys(this.#state.repos)).map((name) => this.#state.repos[name]).filter(Boolean)
-    const lastViewedAt = this.#state.lastViewedAt
-    const unread = lastViewedAt
-      ? this.#state.changes.filter((change) => change.at > lastViewedAt)
-      : this.#state.changes
+    const viewedAt = this.#state.updatesViewedAt
+    const updates = this.#state.updates ?? []
+    const unread = viewedAt ? updates.filter((update) => update.at > viewedAt) : updates
+    const watched = Object.keys(this.#state.watched ?? {})
     return {
       viewer: this.#state.viewer,
       lists,
       orphans,
-      repos: repos.map((repo) => ({ ...repo, desired: desiredLists(repo) })),
-      changes: this.#state.changes,
-      unreadCount: unread.length,
+      repos: repos.map((repo) => ({ ...repo, desired: desiredLists(repo), watched: Boolean(this.#state.watched?.[repo.nameWithOwner]) })),
+      watched,
+      // 操作记录（用户自己做的事）与远端更新（只含跟踪仓库）分开，未读只算后者。
+      ops: this.#state.ops ?? [],
+      updates,
+      updatesUnread: unread.length,
       snapshotAt: this.#state.snapshotAt,
-      lastViewedAt,
+      updatesViewedAt: viewedAt,
     }
   }
 }

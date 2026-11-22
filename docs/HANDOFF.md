@@ -141,6 +141,8 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 
 23. **新建分类要带描述**：`github.createList(name, description)` 的第二个参数不传就留空，GitHub Lists 页里只看得到名字。插件建分类统一写 `dsh-stars 自动创建`（`acceptSuggestions`、`organizeApply`、面板 `createList` 三处都传）；已经建空的历史列表用 `updateUserList(input:{listId, description})` 补。注意 `updateUserList` 的 `name` 不传会保持原名，`description: ""` 可以清空。
 
+25. **两本账别混**：`state.ops`（用户操作）与 `state.updates`（跟踪仓库的远端更新）是两个列表；未读只算 `updates`，跟踪开关是 `state.watched`（默认空 = 不跟踪），`state.version` 2 才有这套结构。v1 → v2 的 `load()` 升级会清空 `watched` 并把历史更新标记已读，升级后立刻落盘——否则下次启动会再升级一次，把用户的跟踪设置抹掉。
+
 24. **主题色不能想当然**：`--dsw-alias-brand-primary` 是**前景色**（亮 `#0f1115`、暗 `#f9fafb`），拿它当按钮底色在暗色主题下就是白底白字；主按钮要用 `background: label-primary + color: bg-layer-1`。可用的：`--dsw-alias-link`（亮 `#4176e6` / 暗 `#7aaaff`，做链接和强调）、`state-success/warn/error-primary`、`label-primary/secondary/tertiary/caption`、`bg-layer-1/2`、`interactive-bg-hover`、`card-fill(-hover)`。不存在但曾被我写错的：`--dsw-alias-state-warning-primary`（应为 `state-warn-primary`）、`--dsw-alias-fg-secondary`（应为 `label-secondary`）。改主题相关样式后必须用 Playwright `colorScheme: 'light' | 'dark'` 两套各截一次图。
 
 ## 下一步候选（按价值排）
