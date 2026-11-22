@@ -8,6 +8,8 @@ DSH 插件 `dsh-stars` 已开源（`github.com/whiplashf/dsh-stars`，MIT），�
 
 v0.2 加了：四维排序、chip/语言筛选、Shift 多选、同步前预览（`plan` + `expectCount` 409）、取消 star、删除分类（成员搬完才删）、孤儿成员清理。设计见 `docs/DESIGN-v0.2.md`，术语见 `GLOSSARY.md`。
 
+v0.3（**代码就绪，未发版**）加了两件用户点名要的：点一行的任意位置就能勾选；「✦ AI 整理」用宿主里配好的模型给分类方案（有分类时先问「基于当前分类 / 完全重新整理」，方案只写暂存，仍要过预览再同步）。
+
 发布状态（2026-11-22）：
 
 - GitHub：public 仓库 + `v0.1.0` / `v0.1.1` / `v0.2.0` 三个 Release；当前 latest = `v0.2.0`，资产是唯一不带版本号的 `dsh-stars.tgz`（215376 字节）；topics 有 `dsh-plugin`。
@@ -52,6 +54,8 @@ v0.2 加了：四维排序、chip/语言筛选、Shift 多选、同步前预览�
 | 取消 star | 行内或批量，二次确认；后台作业 + 进度条，本地记 `unstarred` 变更 |
 | 删除分类 | 先选「变未归类 / 移入另一个分类」，逐条搬完才 `deleteUserList`，失败停在「分类还在」 |
 | 孤儿清理 | 分类里但已不在 star 里的仓库，底部折叠区逐个「移出」 |
+| 行点击勾选 | 点一行的任意位置即勾选/取消（避开按钮、链接、输入框、正在选文字），Shift 仍可选区间 |
+| AI 整理 | 右上「✦ AI 整理」；有分类先问 reuse/rebuild；模型出方案 → 结果对话框（含未归类数、模型署名）→ 应用到暂存；reuse 模式新建分类需 ≥2 个仓库，最多 12 类，超 60 个仓库分批 |
 
 ## 架构
 
@@ -100,11 +104,12 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
   - 删分类（移入另一分类）：源分类 2 条 → 目标分类收到 2 条、源分类消失、本地归属指向目标；
   - 孤儿：把未 star 的仓库塞进临时分类 → `view().orphans` 报到、计数含孤儿 → `removeOrphan` 后 GitHub 成员归零、本地孤儿消失；
   - 运行中发现的 bug：删分类的 targets 从本地 `list.repos` 算，本地没刷新过就是空的 → 「移入」变成「全移出」。已改成动手前 `github.fetchLists()` 取远端成员。
+- v0.3 AI 整理（2026-11-22）：`{action:'organize', mode:'reuse', scope:'unsorted'}` 实测 11–19s（路由 `deepseek-official` / `deepseek-flash`，26 个仓库），给出 6–11 个分组、含 1–3 个新建分类；UI 全链路（点「✦ AI 整理」→ 模式对话框 → `AI 正在整理…` → `AI 建议分成 N 个分类` → 应用到暂存 → 横幅「已把 25 个仓库放进暂存」+ 同步按钮 `(25)`）用 Playwright 跑通，之后已把暂存清掉、3 个新建列表删掉（`state` 回到 7 lists / pending 0）；行点击实测 `已选 1 个` → 再点清空。`npm test` 26/26。
 - v0.2 面板（Playwright，`/tmp/ui-v02*.mjs`）：点「Star」表头 → 首行 `★ 459463`，再点 → `★ 1`；chip「未归类」→ 27 行；全选 → 「已选 114 个」+ 「取消 star（」按钮；预览对话框 `将写回 3 个仓库` + `tmp-v02-ui ← 3 个` + 三行 `未归类 → tmp-v02-ui`；删除分类对话框 `变未归类 / 移入另一个分类`，move 模式未选目标时确认按钮 disabled；无 pageerror。
 
 ## 当前数据状态（接手先看）
 
-- `state.json`（2026-11-22 18:30 E2E 收尾复核）：114 个 star、8 个 Lists、**pending 0**、27 个仍未归类（关键词规则命中不了，需要人工）、无孤儿、无悬空 list id。
+- `state.json`（2026-11-22 19:2x AI 整理收尾复核）：**113 个 star、7 个 Lists、pending 0、26 个未归类、无孤儿、无悬空 list id**（比 18:30 少 1 个 star / 1 个分类，是用户自己在 GitHub 上取消了一个 star 并删了一个列表；AI 测试产生的暂存与 3 个新建列表已全部清掉）。
 - 六个分类 Lists 已填充：AI Agent 与技能 42 / 音乐与音频 22 / 学习与教程 11 / LLM 与深度学习 7 / 前端与工具 2 / 量化交易 2，合计 86。
 - 原有 `skills`(1) 与 `📘 QT`(0) 未被改动；测试列表（`tmp-progress-test`、`tmp-progress-ui`）已删除、归属已还原。
 
@@ -129,7 +134,10 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 16. 取消 star 的探针会在变更记录里留下 `new` + `unstarred` 噪声（变更没有删除接口），测试时用一次性探针仓库，别用用户真在意的仓库。
 
 17. **性能：先看往返次数，再看并发。** gh 每次调用 ≈ 0.7s（起进程 0.04s + GitHub 往返）；`fetchLists` 曾经是「1 次列表查询 + 每个列表 1 次成员查询」的串行 1+N（8 个列表 ≈ 8s）。改成一次请求取回所有列表前 100 个成员后是 2.9s；删分类前核查只需要一个列表的成员，单独用 `fetchListMembers(listId)` 是 0.9s。2026-11-22 实测（13 成员列表）：删分类端到端 9.7s → 1.6s（接口返回）+ 4.3s（成员写回，6 并发）+ 0.8s（删列表）。
-18. 剩下的最贵路径是 `fetchStarred`：100 个仓库带 topics + latestRelease 的一页在 GitHub 侧就要 5.9s（去掉 topics 4.0s、只取最小字段 2.7s），114 star 两页 ≈ 7.5s，`refresh` 因此还在 9s 左右。要再快只能拆查询或按需取 topics。
+19. **AI 整理的模型接口别 import**：插件装在 `link:` 目录，`import '@deepseek-ai/dsh-llm'` 解析不到 DSH 的 node_modules。用 `ctx.get('llm')` → `listProviders()` / `listModels(provider)` / `prepareCall({provider, model, maxTokens})` → `stream({...config, system, messages})`，自己按 `text-delta` 累积文本（参考 `@deepseek-ai/dsh-experimental-translator`）。cordis 的 `inject` 只收字符串数组，用 `ctx.get` 拿不到就当没有。
+20. 模型输出不能信：`extractJson` 要容忍代码块/尾逗号，`normalizePlan` 必须丢掉不存在的仓库名并限制分组数；同一批 star 两次跑结果会不一样（11 类 vs 9 类），所以它只写暂存。
+21. 「采纳全部建议」只在**有规则命中的未归类仓库**时才出现——27 个未归类里大多命中不了关键词，所以分布条经常是空的，这是正常的；AI 整理按钮因此放在顶部而不是分布条里。
+22. 剩下的最贵路径是 `fetchStarred`：100 个仓库带 topics + latestRelease 的一页在 GitHub 侧就要 5.9s（去掉 topics 4.0s、只取最小字段 2.7s），114 star 两页 ≈ 7.5s，`refresh` 因此还在 9s 左右。要再快只能拆查询或按需取 topics。
 
 ## 下一步候选（按价值排）
 
@@ -137,7 +145,8 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 2. 右栏仓库详情：release notes、最近提交列表（要额外的 compare/commits API，按需加载）。
 3. 定时抓取：复用 `dsh-schedule` 每天跑一次 `refresh`，有变更时通知。
 4. 规则可编辑 UI（现在只能改 `config.suggestRules` 整表替换）。
-5. 发版：v0.2 代码就绪，等用户确认后 `npm version 0.2.0 --no-git-tag-version` → commit → `git tag v0.2.0 && git push origin v0.2.0`，`release.yml` 会自动打包挂资产（不需要 npm）。
+5. 发版 v0.3.0：代码就绪（行点击 + AI 整理），等用户确认后 `npm version 0.3.0 --no-git-tag-version` → commit → `git tag -a v0.3.0 && git push origin v0.3.0`，`release.yml` 自动打包挂资产（不需要 npm）。版本号要 ≥0.3 是因为加了新 action（`organize` / `organizeApply`）与新配置键。
+6. AI 整理还能再省：把「已有分类 + 未归类」的仓库做成 embedding 聚类先粗排，再让模型只微调（当前每次 10–20s 且结果有抖动）。
 
 ## 相关命令
 

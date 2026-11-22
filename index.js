@@ -10,6 +10,7 @@ import path from 'node:path'
 import { GitHub, GitHubError } from './src/github.js'
 import { Store } from './src/store.js'
 import { DEFAULT_RULES, suggestAll } from './src/classify.js'
+import { MAX_REPOS_PER_CALL, askModel, buildPrompt, extractJson, normalizePlan, pickModel } from './src/organize.js'
 
 const ROUTE = '/api/dsh-stars'
 const DEFAULT_MIN_REFRESH_MS = 10 * 60 * 1000
@@ -48,6 +49,8 @@ export function apply(ctx, config = {}) {
   const staleDays = Number.isFinite(config.staleDays) ? config.staleDays : 365
   const rules = config.suggestRules ?? DEFAULT_RULES
   const syncConcurrency = Math.max(1, Math.min(8, Number.isFinite(config.syncConcurrency) ? config.syncConcurrency : DEFAULT_SYNC_CONCURRENCY))
+  const organizeProvider = typeof config.organizeProvider === 'string' && config.organizeProvider ? config.organizeProvider : null
+  const organizeModel = typeof config.organizeModel === 'string' && config.organizeModel ? config.organizeModel : null
 
   /** 同一时间只允许一次抓取；面板反复刷新时复用同一个 Promise。 */
   let inFlight = null
@@ -443,6 +446,100 @@ export function apply(ctx, config = {}) {
         // 跑完就把完整视图带回去，面板可以一次性换成作业结束后的状态。
         if (running?.running) return { job: running, syncJob: running }
         return { job: running, syncJob: running, ...view() }
+      }
+      case 'organize': {
+        // 只出方案，不写任何东西：用户看一眼再去「应用到暂存」。
+        await store.load()
+        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再整理')
+        const mode = payload.mode === 'rebuild' ? 'rebuild' : 'reuse'
+        const scope = payload.scope === 'all' ? 'all' : 'unsorted'
+        const repoList = Object.values(store.state.repos)
+        const candidates = (scope === 'all' ? repoList : repoList.filter((repo) =>
+          (repo.lists ?? []).length === 0 && !(repo.pending?.add ?? []).length))
+          .map((repo) => ({
+            nameWithOwner: repo.nameWithOwner,
+            description: repo.description ?? '',
+            topics: repo.topics ?? [],
+            language: repo.language ?? '',
+            stars: repo.stars ?? 0,
+          }))
+        if (candidates.length === 0) {
+          return { mode, scope, provider: null, model: null, groups: [], unsorted: [], dropped: 0, total: 0, note: '没有需要整理的仓库' }
+        }
+        const llm = ctx.get('llm')
+        const route = await pickModel(llm, { provider: organizeProvider ?? undefined, model: organizeModel ?? undefined })
+        if (!route) {
+          throw new GitHubError('model', '没有可用的模型路由：先在 DSH 里配置一个 LLM 提供商，或关掉「AI 整理」改用关键词建议')
+        }
+        const lists = store.state.lists.map((list) => ({ name: list.name, count: list.repos?.length ?? 0 }))
+        const batches = Math.ceil(candidates.length / MAX_REPOS_PER_CALL)
+        const merged = { groups: [], unsorted: [] }
+        for (let batch = 0; batch < batches; batch += 1) {
+          const slice = candidates.slice(batch * MAX_REPOS_PER_CALL, (batch + 1) * MAX_REPOS_PER_CALL)
+          const prompt = buildPrompt({ repos: slice, lists, mode, batch: batch + 1, batches })
+          const { text } = await askModel({ llm, provider: route.provider, model: route.model, prompt })
+          const plan = normalizePlan(extractJson(text), { repos: slice, lists: store.state.lists, mode })
+          merged.groups.push(...plan.groups)
+          merged.unsorted.push(...plan.unsorted)
+        }
+        // 跨批合并同名分类（模型分批时可能各起一个名字）。
+        const byName = new Map()
+        for (const group of merged.groups) {
+          const hit = byName.get(group.name)
+          if (hit) hit.repos.push(...group.repos)
+          else byName.set(group.name, { name: group.name, repos: [...group.repos] })
+        }
+        const known = new Map(store.state.lists.map((list) => [list.name.toLowerCase(), list]))
+        const groups = [...byName.values()].map((group) => {
+          const existing = known.get(group.name.toLowerCase()) ?? null
+          return {
+            name: group.name,
+            listId: existing?.id ?? null,
+            isNew: !existing,
+            repos: group.repos,
+          }
+        })
+        return {
+          mode,
+          scope,
+          provider: route.provider,
+          model: route.model,
+          groups,
+          unsorted: merged.unsorted,
+          dropped: 0,
+          total: candidates.length,
+        }
+      }
+      case 'organizeApply': {
+        // 把方案落成暂存：新建缺的分类，其余只改 pending；写回 GitHub 仍要用户点同步。
+        await store.load()
+        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改归类')
+        const mode = payload.mode === 'rebuild' ? 'rebuild' : 'reuse'
+        const groups = Array.isArray(payload.groups) ? payload.groups : []
+        let created = 0
+        let touched = 0
+        for (const group of groups) {
+          const name = String(group?.name ?? '').trim()
+          const names = (Array.isArray(group?.repos) ? group.repos : []).map(String)
+          if (!name || names.length === 0) continue
+          let list = store.state.lists.find((item) => item.name.toLowerCase() === name.toLowerCase())
+          if (!list) {
+            const made = await github.createList(name)
+            store.setList(made)
+            created += 1
+            list = made
+          }
+          const others = mode === 'rebuild'
+            ? store.state.lists.filter((item) => item.id !== list.id).map((item) => item.id)
+            : []
+          touched += store.stage(names, { add: [list.id], remove: others })
+        }
+        if (mode === 'rebuild' && Array.isArray(payload.unsorted)) {
+          const clear = store.state.lists.map((item) => item.id)
+          touched += store.stage(payload.unsorted.map(String), { add: [], remove: clear })
+        }
+        await store.save()
+        return { touched, created, ...view() }
       }
       case 'createList': {
         await store.load()

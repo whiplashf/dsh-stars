@@ -25,6 +25,22 @@ window.__ModuleLoader__.load({
       syncProgress: '同步进度',
       unstarProgress: '取消 star 进度',
       deleteListProgress: '删除分类进度',
+      organize: 'AI 整理',
+      organizeHint: '让模型按 star 的描述和 topics 建议分类（写回前还要你确认）',
+      organizeModeTitle: '怎么整理？',
+      organizeModeBody: (n) => `你已经有 ${n} 个分类。基于当前分类整理只会动未归类的仓库；完全重新整理会按 AI 的判断把所有 star 重新排一遍（写回前还要你确认）。`,
+      organizeReuse: '基于当前分类整理',
+      organizeRebuild: '完全重新整理',
+      organizeRunning: 'AI 正在整理…',
+      organizeRunningHint: (n) => `正在分析 ${n} 个仓库，通常 10–30 秒，别关面板`,
+      organizeResultTitle: (n) => `AI 建议分成 ${n} 个分类`,
+      organizeNew: '新建',
+      organizeRepos: (n) => `${n} 个仓库`,
+      organizeUnsorted: (n) => `保持未归类：${n} 个`,
+      organizeApply: '应用到暂存',
+      organizeApplied: (n) => `已把 ${n} 个仓库放进暂存，检查无误后点「同步到 GitHub」`,
+      organizeEmpty: 'AI 没有给出可用的分类，可以换一种整理方式或手工归类',
+      organizeBy: (provider, model) => `由 ${provider} · ${model} 生成`,
       syncDone: '同步完成',
       progressMeta: (done, total, applied, failed) => `${done}/${total} 已处理 · 写回 ${applied}${failed > 0 ? ` · 失败 ${failed}` : ''}`,
       progressCurrent: (name) => `正在写 ${name}`,
@@ -140,6 +156,22 @@ window.__ModuleLoader__.load({
       syncProgress: 'Sync progress',
       syncDone: 'Sync finished',
       progressMeta: (done, total, applied, failed) => `${done}/${total} processed · ${applied} written${failed > 0 ? ` · ${failed} failed` : ''}`,
+      organize: 'AI organize',
+      organizeHint: 'Let the model suggest lists from descriptions and topics',
+      organizeModeTitle: 'How should it organize?',
+      organizeModeBody: (n) => `You already have ${n} lists. Use them reclassifies only unsorted repos; rebuild rewrites every star.`,
+      organizeReuse: 'Use my lists',
+      organizeRebuild: 'Rebuild from scratch',
+      organizeRunning: 'AI is organizing…',
+      organizeRunningHint: (n) => `Analyzing ${n} repositories, usually 10-30s`,
+      organizeResultTitle: (n) => `AI suggests ${n} lists`,
+      organizeNew: 'new',
+      organizeRepos: (n) => `${n} repos`,
+      organizeUnsorted: (n) => `Keep unsorted: ${n}`,
+      organizeApply: 'Stage these',
+      organizeApplied: (n) => `Staged ${n} repositories — review, then sync to GitHub`,
+      organizeEmpty: 'The model returned no usable groups',
+      organizeBy: (provider, model) => `by ${provider} · ${model}`,
       progressCurrent: (name) => `Writing ${name}`,
       synced: (n) => `Synced ${n} repositories`,
       syncFailed: (n) => `${n} repositories failed`,
@@ -206,6 +238,7 @@ window.__ModuleLoader__.load({
 .stars-btn:disabled{opacity:.5;cursor:default}
 .stars-btn[data-kind=danger]{background:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);color:#fff}
 .stars-btn[data-kind=primary]{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
+.stars-btn[data-kind=ai]{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
 .stars-btn[data-kind=primary]:hover:not(:disabled){filter:brightness(1.08);color:#fff}
 .stars-body{display:flex;flex:1;min-height:0}
 .stars-rail{width:200px;flex:none;border-right:1px solid var(--dsw-alias-border-l1);padding:10px 8px;overflow:auto}
@@ -224,6 +257,7 @@ window.__ModuleLoader__.load({
 .stars-table{width:100%;border-collapse:collapse}
 .stars-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base);text-align:left;font-weight:500;font-size:11px;letter-spacing:.04em;color:var(--dsw-alias-label-caption);padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}
 .stars-table td{padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:top}
+.stars-row { cursor: pointer; }
 .stars-row:hover td{background:var(--dsw-alias-card-fill)}
 .stars-repo{display:flex;flex-direction:column;gap:3px;min-width:0}
 .stars-repolink{color:var(--dsw-alias-label-primary);font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -260,7 +294,8 @@ window.__ModuleLoader__.load({
 .stars-rowact:hover{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-border-l1)}
 .stars-plansummary{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.6}
 .stars-planlist{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);padding:8px;background:var(--dsw-alias-bg-layer-1)}
-.stars-planrow{display:flex;gap:8px;justify-content:space-between;align-items:baseline}
+.stars-planrow{display:flex;gap:8px;justify-content:space-between;align-items:baseline;flex-wrap:wrap}
+.stars-planrow>.stars-repolist{flex-basis:100%;color:var(--dsw-alias-fg-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stars-radio{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .stars-orphans{border-top:1px solid var(--dsw-alias-border-l1);padding:6px 16px;flex:none}
 .stars-orphantoggle{font-size:11px;color:var(--dsw-alias-label-tertiary);background:transparent;border:0;cursor:pointer;padding:0}
@@ -436,6 +471,7 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = React.useState(null)
       const [confirm, setConfirm] = React.useState(null)
       const [orphansOpen, setOrphansOpen] = React.useState(false)
+      const [ai, setAi] = React.useState(null)
       const pollingRef = React.useRef(false)
       const lastToggled = React.useRef(null)
       const t = React.useMemo(() => (key, ...args) => {
@@ -663,6 +699,36 @@ window.__ModuleLoader__.load({
         await startAndFollow(value)
       }
 
+      const runAi = async (mode, scope) => {
+        setAi({ phase: 'running', mode })
+        try {
+          const result = await run({ action: 'organize', mode, scope })
+          setAi({ phase: 'result', mode, result })
+        } catch (cause) {
+          setAi(null)
+          throw cause
+        }
+      }
+
+      const openAi = () => {
+        if (lists.length > 0) setConfirm({ type: 'organize' })
+        else runAi('reuse', 'all').catch(() => {})
+      }
+
+      const applyAi = async () => {
+        const result = ai?.result
+        if (!result) return
+        const value = await run({
+          action: 'organizeApply',
+          mode: ai.mode,
+          groups: result.groups,
+          unsorted: result.unsorted,
+        })
+        setData(value)
+        setAi(null)
+        setNotice({ tone: 'ok', text: t('organizeApplied', value.touched ?? 0) })
+      }
+
       const removeOrphan = async (listId, fullName) => {
         await run({ action: 'removeOrphan', listId, fullName })
         setNotice({ tone: 'ok', text: `已从分类移出 ${fullName}` })
@@ -698,6 +764,13 @@ window.__ModuleLoader__.load({
             data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)} · ${data.repos.length} 个 star` : t('never'),
             unread > 0 ? ` · ${t('unread', unread)}` : '')),
         h('div', { className: 'stars-grow' }),
+        h('button', {
+          className: 'stars-btn',
+          'data-kind': 'ai',
+          disabled: busy || syncing || repos.length === 0,
+          title: t('organizeHint'),
+          onClick: openAi,
+        }, `✦ ${t('organize')}`),
         h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => run({ action: 'refresh' }).catch(() => {}) }, busy || syncing ? '…' : t('refresh')),
         h('button', {
           className: 'stars-btn',
@@ -864,7 +937,18 @@ window.__ModuleLoader__.load({
         const suggested = suggestions[repo.nameWithOwner]
         const pending = Boolean(repo.pending?.add?.length || repo.pending?.remove?.length)
         const chips = (repo.desired ?? []).map((id) => lists.find((list) => list.id === id)?.name).filter(Boolean)
-        return h('tr', { className: 'stars-row', key: repo.nameWithOwner },
+        return h('tr', {
+          className: 'stars-row',
+          key: repo.nameWithOwner,
+          // 整行可点：点到勾选框、链接、按钮时交回给它们自己处理，
+          // 正在拖选文字时也不抢点击。
+          onClick: (event) => {
+            if (event.target.closest('button, a, input, select, textarea, label')) return
+            const picking = typeof window !== 'undefined' && window.getSelection?.()?.toString()
+            if (picking) return
+            toggle(repo.nameWithOwner, index, event)
+          },
+        },
           h('td', { style: { width: 28 } },
             h('input', { className: 'stars-cb', type: 'checkbox', checked: selected.has(repo.nameWithOwner), onChange: (event) => toggle(repo.nameWithOwner, index, event) })),
           h('td', null,
@@ -938,9 +1022,51 @@ window.__ModuleLoader__.load({
         data.viewer ? h('a', { className: 'stars-repolink', style: { fontSize: 11, marginLeft: 'auto' }, href: `https://github.com/stars/${data.viewer}/lists`, target: '_blank', rel: 'noreferrer' }, t('openOnGithub')) : null,
         data.error ? h('span', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, `${data.error.code}: ${data.error.message}`) : null)
 
-        const closeDialog = () => { setCreating(false); setPreview(null); setConfirm(null) }
+        const closeDialog = () => { setCreating(false); setPreview(null); setConfirm(null); setAi(null) }
 
-      const dialogBody = creating
+      const aiGroups = ai?.phase === 'result' ? (ai.result?.groups ?? []) : []
+      const aiCount = aiGroups.reduce((sum, group) => sum + group.repos.length, 0)
+
+      const dialogBody = ai?.phase === 'running'
+        ? h(React.Fragment, null,
+          h('div', { className: 'stars-dialogtitle' }, t('organizeRunning')),
+          h('div', { className: 'stars-plansummary' }, t('organizeRunningHint', ai.result?.total ?? (unsortedCount || repos.length))),
+          h('div', { className: 'stars-dialogactions' },
+            h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel'))))
+        : ai?.phase === 'result'
+          ? h(React.Fragment, null,
+            h('div', { className: 'stars-dialogtitle' }, t('organizeResultTitle', aiGroups.length)),
+            aiGroups.length === 0
+              ? h('div', { className: 'stars-plansummary' }, t('organizeEmpty'))
+              : h('div', { className: 'stars-planlist' },
+                ...aiGroups.map((group) => h('div', { className: 'stars-planrow', key: group.name },
+                  h('span', { style: { fontWeight: 600 } }, group.name),
+                  group.isNew ? h('span', { className: 'stars-chip', 'data-tone': 'brand', style: { fontSize: 10, padding: '0 6px' } }, t('organizeNew')) : null,
+                  h('span', { className: 'stars-dim', style: { marginLeft: 'auto' } }, t('organizeRepos', group.repos.length)),
+                  h('span', { className: 'stars-repolist' }, group.repos.slice(0, 4).join('、'))))),
+            (ai.result?.unsorted ?? []).length > 0
+              ? h('div', { className: 'stars-plansummary' }, t('organizeUnsorted', ai.result.unsorted.length))
+              : null,
+            ai.result?.model
+              ? h('div', { className: 'stars-dim', style: { fontSize: 11 } }, t('organizeBy', ai.result.provider, ai.result.model))
+              : null,
+            h('div', { className: 'stars-dialogactions' },
+              h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+              h('button', {
+                className: 'stars-btn',
+                'data-kind': 'primary',
+                disabled: busy || aiCount === 0,
+                onClick: () => applyAi().catch(() => {}),
+              }, t('organizeApply'))))
+          : confirm?.type === 'organize'
+            ? h(React.Fragment, null,
+              h('div', { className: 'stars-dialogtitle' }, t('organizeModeTitle')),
+              h('div', { className: 'stars-plansummary' }, t('organizeModeBody', lists.length)),
+              h('div', { className: 'stars-dialogactions' },
+                h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+                h('button', { className: 'stars-btn', onClick: () => { setConfirm(null); runAi('reuse', 'unsorted').catch(() => {}) } }, t('organizeReuse')),
+                h('button', { className: 'stars-btn', 'data-kind': 'primary', onClick: () => { setConfirm(null); runAi('rebuild', 'all').catch(() => {}) } }, t('organizeRebuild'))))
+            : creating
         ? h(React.Fragment, null,
           h('div', { className: 'stars-dialogtitle' }, t('createList')),
           h('input', {

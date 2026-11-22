@@ -36,7 +36,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check index.js && node --check client.js && node --check src/github.js && node --check src/store.js && node --check src/classify.js",
+    "check": "node --check index.js && node --check client.js && node --check src/github.js && node --check src/store.js && node --check src/classify.js && node --check src/organize.js",
     "test": "node --test \"tests/**/*.test.js\""
   },
   "dsh": {

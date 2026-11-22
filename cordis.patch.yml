@@ -1,5 +1,6 @@
 # dsh-stars 插入一条 loader 条目。config 可覆盖：stateFile、ghPath、timeoutMs、
-# minRefreshMs、staleDays、suggestRules、syncConcurrency（同步写回并发，默认 4）。
+# minRefreshMs、staleDays、suggestRules、syncConcurrency（同步写回并发，默认 4）、
+# organizeProvider / organizeModel（「AI 整理」用哪个模型路由，不填就用宿主里第一个可用的）。
 - insert:
     - id: dsh-stars
       name: 'dsh-stars'
