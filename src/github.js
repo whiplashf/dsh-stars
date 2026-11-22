@@ -286,7 +286,7 @@ export class GitHub {
       mutation ($itemId: ID!, $listIds: [ID!]!) {
         updateUserListsForItem(input: { itemId: $itemId, listIds: $listIds }) {
           item { ... on Repository { nameWithOwner } }
-          lists { totalCount }
+          lists { id name }
         }
       }
     `, { itemId, listIds })
