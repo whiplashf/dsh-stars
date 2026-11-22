@@ -4,18 +4,19 @@
 
 ## 一句话现状
 
-DSH 插件 `dsh-stars` 已开源（`github.com/whiplashf/dsh-stars`，MIT），线上版本 v0.1.1；**v0.2 的代码已写完并在真机验证过（commit `481dad9`），但还没发版**——按发版规则要等用户明确确认后才打 tag。
+DSH 插件 `dsh-stars` 已开源（`github.com/whiplashf/dsh-stars`，MIT），线上版本 **v0.2.0**（2026-11-22 发布，`release.yml` 自动打包，资产 `dsh-stars.tgz` 215376 字节；真机装过 `+ dsh-stars 0.2.0`）。
 
 v0.2 加了：四维排序、chip/语言筛选、Shift 多选、同步前预览（`plan` + `expectCount` 409）、取消 star、删除分类（成员搬完才删）、孤儿成员清理。设计见 `docs/DESIGN-v0.2.md`，术语见 `GLOSSARY.md`。
 
 发布状态（2026-11-22）：
 
-- GitHub：public 仓库 + `v0.1.0` / `v0.1.1` 两个 Release；当前 latest = `v0.1.1`，资产只有一个不带版本号的 `dsh-stars.tgz`（v0.1.0 上还留着历史资产 `dsh-stars-0.1.0.tgz`）；topics 有 `dsh-plugin`。
+- GitHub：public 仓库 + `v0.1.0` / `v0.1.1` / `v0.2.0` 三个 Release；当前 latest = `v0.2.0`，资产是唯一不带版本号的 `dsh-stars.tgz`（215376 字节）；topics 有 `dsh-plugin`。
 - 市场条目（fork `whiplashf/awesome-dsh-plugin` 分支 `add-dsh-stars`，最新 commit `c45a17a`）里的 tarball 用 `https://github.com/whiplashf/dsh-stars/releases/latest/download/dsh-stars.tgz`——市场按这个形状推导版本，所以条目不用随版本改。
 - 发版通道（**不用 npm**）：`.github/workflows/release.yml` 在推 `v*` tag 时 `npm pack` → 改名 `dsh-stars.tgz` → 建/更新 Release 并 `--clobber` 上传。资产名必须保持无版本号，因为市场用 `releases/latest/download/<asset>` 推导新版本；换名字市场和用户都拿不到更新。
 - npm：**还没发**（本机 `~/.npmrc` 的 npmjs token 已失效，`npm whoami --registry https://registry.npmjs.org` 返回 401）。发的时候：`npm publish --registry https://registry.npmjs.org`，前提是先 `npm login`。账号 2FA 是 security key 形态，本机登录时卡在「Use security key」（用户没有手边设备、也没有恢复码），走的恢复路径是 npm 官网 2FA 页 →「Use a recovery code or request a reset」→「Try recovering your account」→ 邮箱收 OTP → 提交 Reset my two-factor authentication 工单（人工处理，见 https://docs.npmjs.com/recovering-your-2fa-enabled-account）。注意：用恢复码登录会触发 72 小时发布冻结。首版必须手工发（Trusted Publishing 只对已存在的包生效），之后由 `.github/workflows/publish.yml` 接管（push tag → OIDC，无需 token）。
 - 插件市场条目：已在 fork `whiplashf/awesome-dsh-plugin` 的分支 `add-dsh-stars` 提交 `data/plugins/whiplashf__dsh-stars.yml`（commit `22b9857`），**PR 还没开**——收录要求仓库创建满 1 天，2026-11-23 之后才符合。开 PR：`gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --base main --head whiplashf:add-dsh-stars`。
 - 数据侧：114 star / 8 lists / pending 0 / 未归类 27（关键词命中不了的，需要手工归）。
+- 发版命令（已验证）：`npm version patch --no-git-tag-version` → `git commit -am "chore: X"` → `git push` → `git tag -a vX.Y.Z -m "dsh-stars X.Y.Z"` → `git push origin vX.Y.Z`。真机装包要写绝对路径：`~/.npm-global/bin/dsh plugin --profile <name> add ...tgz`（`dsh` 不在非交互 shell 的 PATH 里）。
 
 ## 仓库与安装
 
