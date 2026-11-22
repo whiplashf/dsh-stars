@@ -377,10 +377,12 @@ window.__ModuleLoader__.load({
 .stars-num{color:var(--dsw-alias-label-secondary)}
 .stars-stars{color:var(--dsw-alias-state-warn-primary);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stars-chip[data-color]{background:color-mix(in srgb,var(--stars-c) 15%,transparent);color:var(--dsw-alias-label-secondary)}
-.stars-chip[data-color] .stars-dot{background:var(--stars-c)}
+
 .stars-chip[data-tone=brand]{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
-.stars-lang{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
-.stars-langdot{width:8px;height:8px;border-radius:50%;background:var(--stars-c6);display:inline-block}
+.stars-upd{text-align:right;white-space:nowrap;width:130px;position:relative}
+.stars-hoveracts{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:0;pointer-events:none;background:var(--dsw-alias-bg-layer-1);box-shadow:0 0 0 6px var(--dsw-alias-bg-layer-1);border-radius:8px}
+.stars-row:hover .stars-hoveracts{opacity:1;pointer-events:auto}
+.stars-sortth.stars-upd{text-align:right}
 .stars-change[data-kind=new] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
 .stars-change[data-kind=release] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
 .stars-change[data-kind=commits] .stars-chip{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
@@ -1117,7 +1119,7 @@ window.__ModuleLoader__.load({
                 key: name,
                 'data-color': 'true',
                 style: { '--stars-c': colorOf(name) },
-              }, h('span', { className: 'stars-dot' }), name)),
+              }, name)),
               pending ? h('span', { className: 'stars-chip', 'data-tone': 'brand', key: '__pending' }, t('pendingChip')) : null,
               repo.archived ? h('span', { className: 'stars-chip', 'data-tone': 'warn', key: '__arch' }, t('archived')) : null,
               repo.stale ? h('span', { className: 'stars-chip', 'data-tone': 'warn', key: '__stale' }, t('stale')) : null,
@@ -1125,14 +1127,9 @@ window.__ModuleLoader__.load({
                 ? h('span', { className: 'stars-dim' }, t('unsorted'))
                 : null)),
           h('td', null, h('span', { className: 'stars-stars', title: `${repo.stars ?? 0} stars` }, `★ ${repo.stars ?? 0}`)),
-          h('td', null,
-            h('div', { className: 'stars-rowmeta' },
-              repo.language
-                ? h('span', { className: 'stars-lang' },
-                  h('span', { className: 'stars-langdot', style: { '--stars-c6': colorOf(repo.language) } }),
-                  repo.language)
-                : null,
-              h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt)),
+          h('td', { className: 'stars-upd' },
+            h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt)),
+            h('div', { className: 'stars-hoveracts' },
               h('button', {
                 className: 'stars-rowact stars-track',
                 'data-on': String(Boolean(repo.watched)),
@@ -1147,8 +1144,8 @@ window.__ModuleLoader__.load({
               }, '取消 star'))))
       }
 
-      const sortTh = (key, label) => h('th', {
-        className: 'stars-sortth',
+      const sortTh = (key, label, extraClass) => h('th', {
+        className: `stars-sortth${extraClass ? ` ${extraClass}` : ''}`,
         onClick: () => {
           const next = sort.key === key
             ? { key, dir: sort.dir === 'desc' ? 'asc' : 'desc' }
@@ -1173,7 +1170,7 @@ window.__ModuleLoader__.load({
               sortTh('name', t('name')),
               h('th', null, t('type')),
               sortTh('stars', t('stars')),
-              sortTh('pushedAt', t('updated')),
+              sortTh('pushedAt', t('updated'), 'stars-upd'),
               h('th', { style: { width: 92 } }, ''))),
             h('tbody', null, ...shown.map((repo, index) => row(repo, index)))))
 
