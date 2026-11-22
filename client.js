@@ -372,6 +372,8 @@ window.__ModuleLoader__.load({
 .stars-railitem[data-active=true] .stars-railicon{color:var(--dsw-alias-link)}
 .stars-railcount[data-tone=unread]{background:var(--dsw-alias-link);color:var(--dsw-alias-bg-layer-1);border-radius:999px;padding:0 6px;font-weight:600}
 .stars-repolink{color:var(--dsw-alias-link)}
+/* 链接只包住文字本身：flex 列布局下默认会被拉满整行，导致点仓库名右边的空白也跳走。 */
+.stars-repo>.stars-repolink{align-self:flex-start;max-width:100%}
 .stars-repolink:hover{color:var(--dsw-alias-link);text-decoration:underline}
 .stars-row[data-selected=true] td{background:color-mix(in srgb,var(--dsw-alias-link) 7%,transparent)}
 .stars-num{color:var(--dsw-alias-label-secondary)}
