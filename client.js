@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
       unstarProgress: '取消 star 进度',
       deleteListProgress: '删除分类进度',
       organize: 'AI 整理',
+      markReadHint: '把「变更」里的记录标成已读、未读数清零；只影响面板，不动 GitHub',
       organizeHint: '让模型按 star 的描述和 topics 建议分类（写回前还要你确认）',
       organizeModeTitle: '怎么整理？',
       organizeModeBody: (n) => `你已经有 ${n} 个分类。基于当前分类整理只会动未归类的仓库；完全重新整理会按 AI 的判断把所有 star 重新排一遍（写回前还要你确认）。`,
@@ -157,6 +158,7 @@ window.__ModuleLoader__.load({
       syncDone: 'Sync finished',
       progressMeta: (done, total, applied, failed) => `${done}/${total} processed · ${applied} written${failed > 0 ? ` · ${failed} failed` : ''}`,
       organize: 'AI organize',
+      markReadHint: 'Mark the changes feed as read; local only, GitHub untouched',
       organizeHint: 'Let the model suggest lists from descriptions and topics',
       organizeModeTitle: 'How should it organize?',
       organizeModeBody: (n) => `You already have ${n} lists. Use them reclassifies only unsorted repos; rebuild rewrites every star.`,
@@ -236,10 +238,11 @@ window.__ModuleLoader__.load({
 .stars-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;white-space:nowrap}
 .stars-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .stars-btn:disabled{opacity:.5;cursor:default}
-.stars-btn[data-kind=danger]{background:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);color:#fff}
-.stars-btn[data-kind=primary]{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
-.stars-btn[data-kind=ai]{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-.stars-btn[data-kind=primary]:hover:not(:disabled){filter:brightness(1.08);color:#fff}
+.stars-btn[data-kind=danger]{background:var(--dsw-alias-state-error-primary);border-color:transparent;color:var(--dsw-alias-bg-layer-1)}
+/* 主按钮：用 label-primary 当底色、layer-1 当字色，亮/暗两套主题都能读（brand-primary 是前景色，暗色主题下接近白色，当底色会把白字吃掉）。 */
+.stars-btn[data-kind=primary]{background:var(--dsw-alias-label-primary);border-color:transparent;color:var(--dsw-alias-bg-layer-1);font-weight:600}
+.stars-btn[data-kind=ai]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);font-weight:600}
+.stars-btn[data-kind=primary]:hover:not(:disabled){filter:brightness(1.12);color:var(--dsw-alias-bg-layer-1)}
 .stars-body{display:flex;flex:1;min-height:0}
 .stars-rail{width:200px;flex:none;border-right:1px solid var(--dsw-alias-border-l1);padding:10px 8px;overflow:auto}
 .stars-railgroup{margin:10px 0 4px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dsw-alias-label-caption)}
@@ -780,7 +783,12 @@ window.__ModuleLoader__.load({
         }, syncing
           ? `${t('syncing')} ${job.done}/${job.total}`
           : pendingCount > 0 ? `${t('sync')} (${pendingCount})` : t('sync')),
-        h('button', { className: 'stars-btn', disabled: unread === 0 || syncing, onClick: () => run({ action: 'markViewed' }).catch(() => {}) }, t('markRead')))
+        h('button', {
+          className: 'stars-btn',
+          disabled: unread === 0 || syncing,
+          title: t('markReadHint'),
+          onClick: () => run({ action: 'markViewed' }).catch(() => {}),
+        }, t('markRead')))
 
       const authCard = authState === 'no-gh' || authState === 'not-logged-in' || scopeMissing
         ? h('div', { className: 'stars-auth', role: 'status' },
