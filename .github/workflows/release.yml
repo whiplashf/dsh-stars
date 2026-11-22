@@ -42,8 +42,10 @@ jobs:
 
       - name: Build the tarball
         run: |
-          npm pack
-          mv ./*.tgz dsh-stars.tgz
+          # Pack into an empty directory: a stray *.tgz in the checkout would
+          # otherwise make the rename below ambiguous.
+          npm pack --pack-destination "${RUNNER_TEMP}/pack"
+          cp "${RUNNER_TEMP}"/pack/*.tgz dsh-stars.tgz
           tar -tzf dsh-stars.tgz | head -20
 
       - name: Attach it to the release
