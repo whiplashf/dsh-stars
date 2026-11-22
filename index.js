@@ -13,6 +13,8 @@ import { DEFAULT_RULES, suggestAll } from './src/classify.js'
 
 const ROUTE = '/api/dsh-stars'
 const DEFAULT_MIN_REFRESH_MS = 10 * 60 * 1000
+/** 同步写回 GitHub 的并发数：86 条串行要 1 分钟，4 并发够快又不会触发二级限流。 */
+const DEFAULT_SYNC_CONCURRENCY = 4
 
 export const name = 'dsh-stars'
 export const inject = ['connection']
@@ -45,10 +47,21 @@ export function apply(ctx, config = {}) {
   const minRefreshMs = Number.isFinite(config.minRefreshMs) ? config.minRefreshMs : DEFAULT_MIN_REFRESH_MS
   const staleDays = Number.isFinite(config.staleDays) ? config.staleDays : 365
   const rules = config.suggestRules ?? DEFAULT_RULES
+  const syncConcurrency = Math.max(1, Math.min(8, Number.isFinite(config.syncConcurrency) ? config.syncConcurrency : DEFAULT_SYNC_CONCURRENCY))
 
   /** 同一时间只允许一次抓取；面板反复刷新时复用同一个 Promise。 */
   let inFlight = null
   let lastError = null
+  /**
+   * 同步任务的实时进度。sync 不再是一次阻塞到结束的请求：
+   * 启动后立刻返回，面板轮询 `progress`，所以 86 条写回中途也能看到 done/total。
+   */
+  let syncJob = null
+
+  function jobSnapshot() {
+    if (!syncJob) return null
+    return { ...syncJob, failed: syncJob.failed.map((failure) => ({ ...failure })) }
+  }
 
   function refresh() {
     if (!inFlight) {
@@ -76,11 +89,14 @@ export function apply(ctx, config = {}) {
       suggestions: suggestAll(result.repos, rules),
       error: lastError,
       staleDays,
+      syncJob: jobSnapshot(),
     }
   }
 
   async function readState({ force = false } = {}) {
     await store.load()
+    // 同步进行中不重抓：抓回来的 Lists 归属还是旧的，会把面板状态抖回去。
+    if (syncJob?.running) return view()
     const snapshotAt = store.state.snapshotAt
     const stale = !snapshotAt || Date.now() - Date.parse(snapshotAt) > Math.max(0, minRefreshMs)
     if (force || stale) {
@@ -93,26 +109,72 @@ export function apply(ctx, config = {}) {
     return view()
   }
 
-  async function sync({ dryRun = false } = {}) {
+  /** 后台跑同步任务；每写回一条就落盘一次，断掉也不会丢已完成的进度。 */
+  async function runSync(job, plans) {
+    let cursor = 0
+    const take = () => (cursor < plans.length ? plans[cursor++] : null)
+    const worker = async () => {
+      for (let plan = take(); plan; plan = take()) {
+        job.current = plan.nameWithOwner
+        try {
+          await github.setItemLists(plan.itemId, plan.to)
+          store.markSynced(plan.nameWithOwner, plan.to)
+          job.applied += 1
+          await store.save()
+        } catch (error) {
+          job.failed.push({ nameWithOwner: plan.nameWithOwner, ...describe(error) })
+        }
+        job.done += 1
+      }
+    }
+    try {
+      const workers = Math.min(syncConcurrency, plans.length)
+      await Promise.all(Array.from({ length: workers }, () => worker()))
+    } catch (error) {
+      job.error = describe(error)
+    } finally {
+      job.running = false
+      job.current = null
+      job.finishedAt = new Date().toISOString()
+      try {
+        await store.save()
+      } catch {
+        // 收尾落盘失败不影响已经写回 GitHub 的结果。
+      }
+    }
+  }
+
+  async function startSync({ dryRun = false } = {}) {
     await store.load()
+    if (syncJob?.running) return jobSnapshot()
     const plans = store.planSync()
     if (dryRun || plans.length === 0) {
       await store.save()
-      return { applied: 0, failed: [], plans }
-    }
-    let applied = 0
-    const failed = []
-    for (const plan of plans) {
-      try {
-        await github.setItemLists(plan.itemId, plan.to)
-        store.markSynced(plan.nameWithOwner, plan.to)
-        applied += 1
-      } catch (error) {
-        failed.push({ nameWithOwner: plan.nameWithOwner, ...describe(error) })
+      syncJob = {
+        running: false,
+        total: 0,
+        done: 0,
+        applied: 0,
+        failed: [],
+        current: null,
+        startedAt: null,
+        finishedAt: new Date().toISOString(),
       }
+      return jobSnapshot()
     }
-    await store.save()
-    return { applied, failed, plans }
+    syncJob = {
+      running: true,
+      total: plans.length,
+      done: 0,
+      applied: 0,
+      failed: [],
+      current: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    }
+    const job = syncJob
+    void runSync(job, plans)
+    return jobSnapshot()
   }
 
   async function dispatch(payload) {
@@ -124,6 +186,7 @@ export function apply(ctx, config = {}) {
         return readState({ force: true })
       case 'stage': {
         await store.load()
+        if (syncJob?.running) throw new GitHubError('busy', '正在同步到 GitHub，等进度跑完再改归类')
         const touched = store.stage(payload.fullNames, { add: payload.add, remove: payload.remove })
         await store.save()
         return { touched, ...view() }
@@ -131,6 +194,7 @@ export function apply(ctx, config = {}) {
       case 'acceptSuggestions': {
         // 只做暂存：把每条建议落到对应列表的 pending.add 上，写回 GitHub 仍要用户点一次「同步」。
         await store.load()
+        if (syncJob?.running) throw new GitHubError('busy', '正在同步到 GitHub，等进度跑完再改归类')
         const suggestions = suggestAll(store.view().repos, rules)
         const byName = new Map(store.state.lists.map((list) => [list.name, list.id]))
         const groups = new Map()
@@ -163,8 +227,16 @@ export function apply(ctx, config = {}) {
         return { created, staged, kept, ...view() }
       }
       case 'sync': {
-        const result = await sync({ dryRun: Boolean(payload.dryRun) })
-        return { ...result, ...view() }
+        // 立刻返回 job（running=true），写回在后台继续；面板用 progress 轮询。
+        const job = await startSync({ dryRun: Boolean(payload.dryRun) })
+        return { ...view(), syncJob: job }
+      }
+      case 'progress': {
+        await store.load()
+        const job = jobSnapshot()
+        // 跑完就把完整视图带回去，面板可以一次性换成同步后的状态。
+        if (job?.running) return { syncJob: job }
+        return { syncJob: job, ...view() }
       }
       case 'createList': {
         await store.load()

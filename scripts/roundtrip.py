@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 BASE = os.environ.get('DSH_BASE', 'https://192.168.31.212:3080')
 COOKIE_FILE = os.environ.get('DSH_COOKIE', '/home/massiwei/tmp/cookie.txt')
@@ -27,6 +28,18 @@ def api(payload):
         capture_output=True, text=True,
     ).stdout
     return json.loads(out)
+
+
+def sync_and_wait():
+    """sync 只启动后台任务；轮询 progress 直到 running=false，返回最终 job。"""
+    started = api({'action': 'sync'})
+    if not started.get('ok'):
+        sys.exit(f"sync 失败：{started}")
+    job = started['value'].get('syncJob')
+    while job and job.get('running'):
+        time.sleep(0.4)
+        job = api({'action': 'progress'})['value'].get('syncJob')
+    return job or {}
 
 
 def gh(query, variables=None):
@@ -61,16 +74,16 @@ def main():
     print('临时列表', list_id)
 
     api({'action': 'stage', 'fullNames': [REPO], 'add': [list_id]})
-    synced = api({'action': 'sync'})
-    print('加入 → applied', synced['value']['applied'], 'failed', synced['value']['failed'])
+    job = sync_and_wait()
+    print('加入 → applied', job.get('applied'), 'failed', job.get('failed'))
     print('本地', repo_row(api({'action': 'state'})))
 
     node = gh('query($id:ID!){node(id:$id){... on UserList{items(first:10){totalCount nodes{... on Repository{nameWithOwner}}}}}}', {'id': list_id})
     print('GitHub', json.dumps(node.get('data', {}).get('node'), ensure_ascii=False))
 
     api({'action': 'stage', 'fullNames': [REPO], 'add': [], 'remove': [list_id]})
-    synced = api({'action': 'sync'})
-    print('移出 → applied', synced['value']['applied'])
+    job = sync_and_wait()
+    print('移出 → applied', job.get('applied'))
 
     node = gh('query($id:ID!){node(id:$id){... on UserList{items(first:10){totalCount}}}}', {'id': list_id})
     print('GitHub 剩余', json.dumps(node.get('data', {}).get('node'), ensure_ascii=False))

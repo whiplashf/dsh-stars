@@ -1,5 +1,5 @@
 # dsh-stars 插入一条 loader 条目。config 可覆盖：stateFile、ghPath、timeoutMs、
-# minRefreshMs、staleDays、suggestRules。
+# minRefreshMs、staleDays、suggestRules、syncConcurrency（同步写回并发，默认 4）。
 - insert:
     - id: dsh-stars
       name: 'dsh-stars'

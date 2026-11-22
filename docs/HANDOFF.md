@@ -4,14 +4,14 @@
 
 ## 一句话现状
 
-DSH 插件 `dsh-stars` 的 v1 已经完成并真实验证过（读、分类、暂存、写回 GitHub Lists、变更 diff 全链路跑通）。**当前本地有 86 条归类暂存待写回**，其余都是可用状态。
+DSH 插件 `dsh-stars` 的 v1 已经完成并真实验证过（读、分类、暂存、写回 GitHub Lists、变更 diff 全链路跑通）。**2026-11-22 用户已经点过同步，86 条归类全部写回 GitHub**，六个新列表已填充；剩 27 条规则命中不了的仍未归类。同步现在是后台任务 + 进度条。
 
 ## 仓库与安装
 
 | 项 | 值 |
 | --- | --- |
 | 代码 | `/home/massiwei/code/private/dsh-stars` |
-| 分支 | `main`，最新提交 `68584ad`（feat: 一键采纳全部建议 + 变更去噪） |
+| 分支 | `main`，最新提交见 `git log`（同步进度条 + 4 并发写回） |
 | remote | **还没有**，纯本地仓库（按约定先私有、后发布） |
 | 安装方式 | profile `~/.dsh/profiles/web/package.json` 里 `"dsh-stars": "link:/home/massiwei/code/private/dsh-stars"`，`node_modules/dsh-stars` 是软链 |
 | 工作区 | DSH 左栏「工作区」第一个 `dsh-stars`（id `838c4a89-cb41-40af-b7a8-787c00b300de`，path 同上） |
@@ -30,7 +30,8 @@ DSH 插件 `dsh-stars` 的 v1 已经完成并真实验证过（读、分类、�
 | 看类型 | 顶部类型分布条：AI Agent 与技能 42 / 音乐与音频 22 / 学习与教程 11 / LLM 与深度学习 7 / 量化交易 2 / 前端与工具 2；点 chip 过滤 |
 | 分类查看 | 左栏全部 114 / 未归类 / 每条 Lists / 变更；搜索、只看归档、只看一年未更新、只看待同步 |
 | 批量归类 | 「采纳全部建议 (n)」一次暂存未归类仓库（缺 Lists 自动创建）；也可勾选后从工具栏选列表 |
-| 写回 GitHub | 顶部「同步到 GitHub (n)」用 GraphQL `updateUserListsForItem` 替换语义写回 |
+| 写回 GitHub | 顶部「同步到 GitHub (n)」用 GraphQL `updateUserListsForItem` 替换语义写回；4 并发，后台跑 |
+| 同步进度 | 同步中顶部进度条：百分比 + done/total + 已写回/失败 + 当前仓库；每写回一条落盘，刷新页面后接着显示 |
 | 变更追踪 | 新收藏/新版本/新提交/归档/Star 涨跌/取消收藏，未读数 + 标记已读 |
 | 新建列表 | 左栏「+ 新建列表」，直接在 GitHub 建 |
 
@@ -45,7 +46,8 @@ client.js       浏览器半边：左栏图标 + 整页面板，单文件 lazy f
 scripts/        验证脚本（smoke.mjs 只读；roundtrip.py 真实往返）
 ```
 
-action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `createList` / `markViewed`。
+action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed`。
+`sync` 只启动后台 job 立刻返回，`progress` 轮询；跑完那次返回完整 view。
 
 ## 关键决策与理由
 
@@ -57,20 +59,22 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
    - 否掉官方 Typert remote：要代码生成产物，手写插件挂不上。
 4. **变更只在仓库级**（release tag / pushedAt / archived / star），不做逐 commit diff。理由：114 个仓库逐个 diff 要 clone 或额外的 compare API，成本远超收益。
 5. **星标变化去噪**：只有涨跌 ≥ 10 个或 ≥ 10% 才登记；同一仓库同类变更只留最新一条（读盘时也会清理旧噪声）。否则每天几十条「+1 star」会淹没真正的提交。
+6. **同步改成后台 job + 轮询**，而不是一个阻塞到结束的请求。理由：86 条串行要 1 分钟，HTTP 请求一直挂着既看不到进度、又怕网关/页面刷新把请求掐断；现在 `sync` 立刻返回 job，`progress` 每 350ms 拉一次，且每条写回后 `store.save()`，断了只重跑剩下的。
+7. **写回并发 4**（`config.syncConcurrency`，上限 8）。理由：`gh` 起一次进程 + 一次 GraphQL mutation 约 0.5–1s，串行 86 条约 1 分钟；4 并发实测 8 条 2.2s，远低于 GitHub 二级限流阈值。
 
 ## 验证记录（可复现）
 
 - 只读冒烟：`node scripts/smoke.mjs` → 114 repos / 87 suggestions / 113 unsorted / 二次抓取 changes=0。
 - 真实往返（当时队列干净时跑过，全绿）：建临时列表 → stage add → `applied 1`，GitHub `items.totalCount=1` → stage remove → `applied 1`，`totalCount=0` → `deleteUserList` 成功 → 列表与归属复原。脚本 `scripts/roundtrip.py`（**队列非空时不要跑**，见下面坑）。
 - 面板：Playwright 驱动实测搜索、chip 过滤（43 行）、勾选暂存（横幅 + `待同步` chip + 按钮计数）、采纳全部（86 条）、变更页（4 条）、无 pageerror。截图 `docs/preview.png`。
+- 进度条（2026-11-22）：临时列表暂存 8 条 → 点同步，Playwright 连拍实测进度条依次 `0/8 → 2/8 → 4/8 → 5/8 → 7/8`（fill 2%→88%）、结束后横幅「已同步 8 个仓库」、无 pageerror；随后 stage remove + 同步 + `deleteUserList` 复原，GitHub `items.totalCount` 归零，本地 114 star / pending 0 / 27 未归类。
 - 抓到并修掉的真 bug：`updateUserListsForItem` 的返回值曾写 `lists { totalCount }`，而 `totalCount` 只存在于 `items` 上，导致整条 mutation 无效（`applied 0`）。
 
 ## 当前数据状态（接手先看）
 
-- `state.json`：114 个 star、8 个 Lists、**86 个仓库 pending.add**、27 个仍未归类（关键词规则命中不了，需要人工）、4 条变更。
-- 6 个新分类 Lists 已建在 GitHub 上但都是空的（0 项），同步后才会填充。
-- 点一次「同步到 GitHub (86)」会发出 86 次 mutation，约 1 分钟。**这是用户唯一还没做的动作。**
-- 原有 `skills`(1) 与 `📘 QT`(0) 未被改动；测试仓库归属已还原。
+- `state.json`（2026-11-22 15:57 复核）：114 个 star、8 个 Lists、**pending 0**、27 个仍未归类（关键词规则命中不了，需要人工）、6 条变更。
+- 六个分类 Lists 已填充：AI Agent 与技能 42 / 音乐与音频 22 / 学习与教程 11 / LLM 与深度学习 7 / 前端与工具 2 / 量化交易 2，合计 86。
+- 原有 `skills`(1) 与 `📘 QT`(0) 未被改动；测试列表（`tmp-progress-test`、`tmp-progress-ui`）已删除、归属已还原。
 
 ## 已知坑（踩过的）
 
@@ -82,10 +86,13 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 6. gh token 需要 `user` scope 才能建/改 Lists：`gh auth refresh -h github.com -s user`（非交互必须带 `-h`）。
 7. `gh api graphql` 传数组变量必须 `--input -` 给 JSON，`-f` 会字符串化。
 8. 不要在 dsh-web 的 cgroup 里 restart dsh-web（会自杀）；用 `systemd-run --user --scope` 或让用户点「Restart dsh」。
+9. 同步进行中宿主会拒绝 `stage`/`acceptSuggestions` 并跳过 `refresh`（返回 busy 错误）；想测同步就等 `progress` 返回 `running:false`。
+10. 用 Node `fetch` 打 `https://192.168.31.212:3080` 要加 `NODE_TLS_REJECT_UNAUTHORIZED=0`（自签证书），否则只报 `fetch failed`。
+11. 同步完成后 Lists 的 `count` 还是旧快照值，要等下一次 `refresh` 才对；状态栏数字短暂不一致是正常的。
 
 ## 下一步候选（按价值排）
 
-1. **把 86 条同步上线**，再把 27 个未归类手工归掉——数据价值最大的一步。
+1. **把剩下 27 个未归类手工归掉**（86 条已同步上线）——数据价值最大的一步。可以顺手把 27 条里反复出现的词补进 `classify.js` 规则。
 2. 右栏仓库详情：release notes、最近提交列表（要额外的 compare/commits API，按需加载）。
 3. 定时抓取：复用 `dsh-schedule` 每天跑一次 `refresh`，有变更时通知。
 4. 规则可编辑 UI（现在只能改 `config.suggestRules` 整表替换）。

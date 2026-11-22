@@ -41,7 +41,8 @@ scripts/          验证脚本：smoke.mjs（只读冒烟）、roundtrip.py（�
 
 - 状态文件：`$DSH_HOME/data/dsh-stars/state.json`（默认 `~/.dsh/data/dsh-stars/state.json`），可用 `config.stateFile` 覆盖。
 - 面板只和 `POST /api/dsh-stars` 通信，走 `ctx.connection.fetch`（Owner Peer + Host/Origin 栅栏），浏览器拿不到 GitHub token。
-- action：`state` / `refresh` / `stage` / `sync` / `createList` / `markViewed`。
+- action：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed`。
+- `sync` 只是**启动**后台任务并立刻返回 job（`running/total/done/applied/failed/current`），面板每 350ms 用 `progress` 轮询；跑完那次响应才带回完整视图。每写回一条就落盘，断掉不丢已完成的进度。
 - 依赖 `gh` CLI 已登录（`gh auth status`）；除 `PATH`/`HOME`/`LANG`/`TZ`/`GH_*` 外的环境变量不传给子进程，含 `TOKEN`/`SECRET`/`PASSWORD` 的一律剔除。
 
 ## 配置
@@ -52,6 +53,7 @@ scripts/          验证脚本：smoke.mjs（只读冒烟）、roundtrip.py（�
 | `minRefreshMs` | `600000` | 打开面板时快照超过这个时长才重新抓取 |
 | `staleDays` | `365` | 超过多少天没有 push 标为「一年未更新」 |
 | `suggestRules` | 内置六类 | 整表替换归类规则，每项 `{ name, keywords }` |
+| `syncConcurrency` | `4` | 同步写回的并发数（1–8）；86 条串行约 1 分钟，4 并发约 25 秒 |
 
 ## 已知边界
 

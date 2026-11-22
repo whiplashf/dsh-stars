@@ -22,6 +22,10 @@ window.__ModuleLoader__.load({
       markRead: '标记已读',
       sync: '同步到 GitHub',
       syncing: '同步中…',
+      syncProgress: '同步进度',
+      syncDone: '同步完成',
+      progressMeta: (done, total, applied, failed) => `${done}/${total} 已处理 · 写回 ${applied}${failed > 0 ? ` · 失败 ${failed}` : ''}`,
+      progressCurrent: (name) => `正在写 ${name}`,
       synced: (n) => `已同步 ${n} 个仓库`,
       syncFailed: (n) => `${n} 个仓库同步失败`,
       nothingToSync: '没有待同步的改动',
@@ -85,6 +89,10 @@ window.__ModuleLoader__.load({
       markRead: 'Mark seen',
       sync: 'Sync to GitHub',
       syncing: 'Syncing…',
+      syncProgress: 'Sync progress',
+      syncDone: 'Sync finished',
+      progressMeta: (done, total, applied, failed) => `${done}/${total} processed · ${applied} written${failed > 0 ? ` · ${failed} failed` : ''}`,
+      progressCurrent: (name) => `Writing ${name}`,
       synced: (n) => `Synced ${n} repositories`,
       syncFailed: (n) => `${n} repositories failed`,
       nothingToSync: 'Nothing to sync',
@@ -202,6 +210,14 @@ window.__ModuleLoader__.load({
 .stars-distchip[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
 .stars-distcount{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
 .stars-foot{padding:6px 16px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-caption);display:flex;gap:12px;flex:none;flex-wrap:wrap}
+.stars-progress{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.stars-progresslabel{font-weight:600;white-space:nowrap}
+.stars-progresstrack{position:relative;height:6px;flex:1;min-width:120px;max-width:520px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.stars-progressfill{position:absolute;top:0;bottom:0;left:0;border-radius:999px;background:var(--dsw-alias-brand-primary);transition:width .25s ease}
+.stars-progressfill[data-done=true]{background:var(--dsw-alias-state-success-primary)}
+.stars-progressmeta{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.stars-progresscurrent{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;margin-left:auto}
+.stars-progresspct{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
 `
 
     function ensureCss() {
@@ -279,6 +295,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState(null)
       const [creating, setCreating] = React.useState(false)
       const [newListName, setNewListName] = React.useState('')
+      const [job, setJob] = React.useState(null)
+      const pollingRef = React.useRef(false)
       const t = React.useMemo(() => (key, ...args) => {
         const value = zh[key]
         return typeof value === 'function' ? value(...args) : value ?? key
@@ -299,9 +317,47 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      /**
+       * 同步是后台任务：启动请求立刻返回，这里按 350ms 轮询进度。
+       * 跑完那一次响应会带回完整视图，顺便把面板数据换掉。
+       */
+      const followSync = React.useCallback(async () => {
+        if (pollingRef.current) return
+        pollingRef.current = true
+        try {
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 350))
+            const value = await rpc({ action: 'progress' })
+            if (value?.syncJob) setJob(value.syncJob)
+            if (!value?.syncJob?.running) {
+              if (Array.isArray(value?.repos)) setData(value)
+              const failed = value?.syncJob?.failed?.length ?? 0
+              const applied = value?.syncJob?.applied ?? 0
+              if (failed > 0) {
+                setNotice({ tone: 'error', text: `${t('syncFailed', failed)}：${value.syncJob.failed[0]?.message ?? ''}` })
+              } else {
+                setNotice({ tone: 'ok', text: applied > 0 ? t('synced', applied) : t('nothingToSync') })
+              }
+              break
+            }
+          }
+        } catch (cause) {
+          setError(cause.message)
+        } finally {
+          pollingRef.current = false
+        }
+      }, [t])
+
       React.useEffect(() => {
-        run({ action: 'state' }).catch(() => {})
-      }, [run])
+        run({ action: 'state' })
+          .then((value) => {
+            if (!value?.syncJob) return
+            setJob(value.syncJob)
+            // 刷新页面时如果后台还在同步，接着显示进度条。
+            if (value.syncJob.running) followSync()
+          })
+          .catch(() => {})
+      }, [run, followSync])
 
       const lists = data?.lists ?? []
       const repos = data?.repos ?? []
@@ -388,8 +444,12 @@ window.__ModuleLoader__.load({
 
       const doSync = async () => {
         const value = await run({ action: 'sync' })
-        if (value.failed?.length) setNotice({ tone: 'error', text: `${t('syncFailed', value.failed.length)}：${value.failed[0].message}` })
-        else setNotice({ tone: 'ok', text: value.applied ? t('synced', value.applied) : t('nothingToSync') })
+        if (value?.syncJob) setJob(value.syncJob)
+        if (value?.syncJob?.running) {
+          await followSync()
+        } else if (value?.syncJob) {
+          setNotice({ tone: 'ok', text: t('nothingToSync') })
+        }
       }
 
       const createList = async () => {
@@ -406,6 +466,9 @@ window.__ModuleLoader__.load({
           h('div', { className: 'stars-empty' }, error ? `${t('errorPrefix')}：${error}` : t('loading')))
       }
 
+      const syncing = Boolean(job?.running)
+      const percent = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0
+
       const head = h('div', { className: 'stars-head' },
         h(StarIcon, { size: 18 }),
         h('div', { className: 'stars-headtext' },
@@ -414,13 +477,25 @@ window.__ModuleLoader__.load({
             data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)} · ${data.repos.length} 个 star` : t('never'),
             unread > 0 ? ` · ${t('unread', unread)}` : '')),
         h('div', { className: 'stars-grow' }),
-        h('button', { className: 'stars-btn', disabled: busy, onClick: () => run({ action: 'refresh' }).catch(() => {}) }, busy ? '…' : t('refresh')),
+        h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => run({ action: 'refresh' }).catch(() => {}) }, busy || syncing ? '…' : t('refresh')),
         h('button', {
           className: 'stars-btn',
-          disabled: busy || pendingCount === 0,
+          disabled: busy || syncing || pendingCount === 0,
           onClick: () => doSync().catch(() => {}),
-        }, pendingCount > 0 ? `${t('sync')} (${pendingCount})` : t('sync')),
-        h('button', { className: 'stars-btn', disabled: unread === 0, onClick: () => run({ action: 'markViewed' }).catch(() => {}) }, t('markRead')))
+        }, syncing
+          ? `${t('syncing')} ${job.done}/${job.total}`
+          : pendingCount > 0 ? `${t('sync')} (${pendingCount})` : t('sync')),
+        h('button', { className: 'stars-btn', disabled: unread === 0 || syncing, onClick: () => run({ action: 'markViewed' }).catch(() => {}) }, t('markRead')))
+
+      const progressStrip = syncing
+        ? h('div', { className: 'stars-progress', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': percent },
+          h('span', { className: 'stars-progresslabel' }, t('syncProgress')),
+          h('div', { className: 'stars-progresstrack' },
+            h('div', { className: 'stars-progressfill', 'data-done': String(job.done >= job.total), style: { width: `${Math.max(percent, 2)}%` } })),
+          h('span', { className: 'stars-progresspct' }, `${percent}%`),
+          h('span', { className: 'stars-progressmeta' }, t('progressMeta', job.done, job.total, job.applied, job.failed?.length ?? 0)),
+          job.current ? h('span', { className: 'stars-progresscurrent', title: job.current }, t('progressCurrent', job.current)) : null)
+        : null
 
       const railItem = (key, label, count, tone) => h('div', {
         key,
@@ -562,6 +637,7 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'stars-root' },
         head,
+        progressStrip,
         (notice || error) ? h('div', { className: 'stars-banner', 'data-tone': notice?.tone ?? 'error' },
           h('span', null, notice?.text ?? `${t('errorPrefix')}：${error}`),
           h('button', { className: 'stars-btn', style: { marginLeft: 'auto', height: 22 }, onClick: () => { setNotice(null); setError(null) } }, '×')) : null,
