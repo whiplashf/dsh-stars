@@ -4,15 +4,22 @@
 
 ## 一句话现状
 
-DSH 插件 `dsh-stars` 的 v1 已经完成并真实验证过（读、分类、暂存、写回 GitHub Lists、变更 diff 全链路跑通）。**2026-11-22 用户已经点过同步，86 条归类全部写回 GitHub**，六个新列表已填充；剩 27 条规则命中不了的仍未归类。同步现在是后台任务 + 进度条。
+DSH 插件 `dsh-stars` v0.1.0 已完成、真实验证、**已开源**（`github.com/whiplashf/dsh-stars`，MIT），并按插件市场要求补齐了单测 / CI / 图标 / 首次运行检查卡。
+
+发布状态（2026-11-22）：
+
+- GitHub：public 仓库 + `v0.1.0` tag + Release（附 `dsh-stars-0.1.0.tgz` 预构建包），topics 有 `dsh-plugin`。
+- npm：**还没发**（本机 `~/.npmrc` 的 npmjs token 已失效，`npm whoami --registry https://registry.npmjs.org` 返回 401）。发的时候：`npm publish --registry https://registry.npmjs.org`，前提是先 `npm login`。
+- 插件市场条目：已在 fork `whiplashf/awesome-dsh-plugin` 的分支 `add-dsh-stars` 提交 `data/plugins/whiplashf__dsh-stars.yml`（commit `22b9857`），**PR 还没开**——收录要求仓库创建满 1 天，2026-11-23 之后才符合。开 PR：`gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --base main --head whiplashf:add-dsh-stars`。
+- 数据侧：114 star / 8 lists / pending 0 / 未归类 27（关键词命中不了的，需要手工归）。
 
 ## 仓库与安装
 
 | 项 | 值 |
 | --- | --- |
 | 代码 | `/home/massiwei/code/private/dsh-stars` |
-| 分支 | `main`，最新提交见 `git log`（同步进度条 + 4 并发写回） |
-| remote | **还没有**，纯本地仓库（按约定先私有、后发布） |
+| 分支 | `main`，最新提交见 `git log` |
+| remote | `origin` = `git@github.com:whiplashf/dsh-stars.git`（public，MIT） |
 | 安装方式 | profile `~/.dsh/profiles/web/package.json` 里 `"dsh-stars": "link:/home/massiwei/code/private/dsh-stars"`，`node_modules/dsh-stars` 是软链 |
 | 工作区 | DSH 左栏「工作区」第一个 `dsh-stars`（id `838c4a89-cb41-40af-b7a8-787c00b300de`，path 同上） |
 | 状态文件 | `~/.dsh/data/dsh-stars/state.json` |
