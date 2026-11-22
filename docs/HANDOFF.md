@@ -4,7 +4,9 @@
 
 ## 一句话现状
 
-DSH 插件 `dsh-stars` v0.1.0 已完成、真实验证、**已开源**（`github.com/whiplashf/dsh-stars`，MIT），并按插件市场要求补齐了单测 / CI / 图标 / 首次运行检查卡。
+DSH 插件 `dsh-stars` 已开源（`github.com/whiplashf/dsh-stars`，MIT），线上版本 v0.1.1；**v0.2 的代码已写完并在真机验证过（commit `481dad9`），但还没发版**——按发版规则要等用户明确确认后才打 tag。
+
+v0.2 加了：四维排序、chip/语言筛选、Shift 多选、同步前预览（`plan` + `expectCount` 409）、取消 star、删除分类（成员搬完才删）、孤儿成员清理。设计见 `docs/DESIGN-v0.2.md`，术语见 `GLOSSARY.md`。
 
 发布状态（2026-11-22）：
 
@@ -43,6 +45,12 @@ DSH 插件 `dsh-stars` v0.1.0 已完成、真实验证、**已开源**（`github
 | 同步进度 | 同步中顶部进度条：百分比 + done/total + 已写回/失败 + 当前仓库；每写回一条落盘，刷新页面后接着显示 |
 | 变更追踪 | 新收藏/新版本/新提交/归档/Star 涨跌/取消收藏，未读数 + 标记已读 |
 | 新建列表 | 左栏「+ 新建列表」，直接在 GitHub 建 |
+| 排序 | 最近 star / 最近更新 / star 数 / 名字，点表头切换，`localStorage['dsh-stars.sort']` 记忆 |
+| 筛选与多选 | 4 个 chip（有新版本 / 30 天内更新 / 未归类 / 已归档）+ 语言 + 搜索；Shift 区间选择，全选=当前筛选结果 |
+| 同步预览 | 「同步到 GitHub (n)」先弹预览（写回多少、从哪到哪），确认后带 `expectCount` 写回；期间队列变了返回 409 |
+| 取消 star | 行内或批量，二次确认；后台作业 + 进度条，本地记 `unstarred` 变更 |
+| 删除分类 | 先选「变未归类 / 移入另一个分类」，逐条搬完才 `deleteUserList`，失败停在「分类还在」 |
+| 孤儿清理 | 分类里但已不在 star 里的仓库，底部折叠区逐个「移出」 |
 
 ## 架构
 
@@ -55,8 +63,8 @@ client.js       浏览器半边：左栏图标 + 整页面板，单文件 lazy f
 scripts/        验证脚本（smoke.mjs 只读；roundtrip.py 真实往返）
 ```
 
-action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed`。
-`sync` 只启动后台 job 立刻返回，`progress` 轮询；跑完那次返回完整 view。
+action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `sync` / `progress` / `createList` / `unstar` / `deleteList` / `removeOrphan` / `markViewed` / `checkAuth`。
+`plan` 只读（返回 `plan` + `summary`）；`sync`/`unstar`/`deleteList` 都只启动后台 job 立刻返回，`progress` 轮询；跑完那次返回完整 view。同一时刻只允许一个作业。
 
 ## 关键决策与理由
 
@@ -71,6 +79,11 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 6. **同步改成后台 job + 轮询**，而不是一个阻塞到结束的请求。理由：86 条串行要 1 分钟，HTTP 请求一直挂着既看不到进度、又怕网关/页面刷新把请求掐断；现在 `sync` 立刻返回 job，`progress` 每 350ms 拉一次，且每条写回后 `store.save()`，断了只重跑剩下的。
 7. **写回并发 4**（`config.syncConcurrency`，上限 8）。理由：`gh` 起一次进程 + 一次 GraphQL mutation 约 0.5–1s，串行 86 条约 1 分钟；4 并发实测 8 条 2.2s，远低于 GitHub 二级限流阈值。
 
+8. **结构操作不进暂存**（取消 star / 删分类 / 移出孤儿直接执行）。理由见 `docs/adr/0001-structural-ops-bypass-pending.md`：`stage()` 只接受已知 list id，删 list 后暂存立即失效；取消 star 是仓库消失不是归属变化；`updateUserListsForItem` 替换语义天然幂等。
+9. **同步先预览 + `expectCount`**。理由：写回是不可见的批量操作，先让人看见「写多少、写到哪」；条数对不上就 409，避免「看着 3 条、写了 30 条」。
+10. **删分类前重新取远端成员**，不信本地快照。理由：本地可能落后（刚在网页往分类加过仓库），当「空分类」直接删会把成员变成孤儿。代价是多一次 `fetchLists`。
+11. **排序只能在客户端做**：`viewer.starredRepositories` 的 `orderBy` 只接受 `STARRED_AT`（`StarOrderField` 只有一个值），按 star 数/推送时间排必须自己算。
+
 ## 验证记录（可复现）
 
 - 只读冒烟：`node scripts/smoke.mjs` → 114 repos / 87 suggestions / 113 unsorted / 二次抓取 changes=0。
@@ -79,10 +92,18 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 - 归属归零修复（2026-11-22）：从 GitHub 删掉一个 list 后，本地 `repo.lists` 一直残留已删 id（`applyFetch` 里 `listMembership.get(name) ?? old?.lists` 的回退把「不属于任何 list」也回退成旧值），表现为「未归类 7 / 各 list 计数合计 87 对不上 114」。改成只有抓回 30 个 lists（`lists(first: 30)` 上限）时才回退；实测修复后未归类回到 27、悬空 id 0。
 - 进度条（2026-11-22）：临时列表暂存 8 条 → 点同步，Playwright 连拍实测进度条依次 `0/8 → 2/8 → 4/8 → 5/8 → 7/8`（fill 2%→88%）、结束后横幅「已同步 8 个仓库」、无 pageerror；随后 stage remove + 同步 + `deleteUserList` 复原，GitHub `items.totalCount` 归零，本地 114 star / pending 0 / 27 未归类。
 - 抓到并修掉的真 bug：`updateUserListsForItem` 的返回值曾写 `lists { totalCount }`，而 `totalCount` 只存在于 `items` 上，导致整条 mutation 无效（`applied 0`）。
+- v0.2 单测：`npm test` 18/18（新增墓碑、itemIds、dropRepo、removeList、applyListRemoval、孤儿、baselineAt 等）。
+- v0.2 真机 E2E（`/tmp/e2e-v02*.mjs`，探针仓库 `octocat/Hello-World`、`octocat/Spoon-Knife`，临时列表全部删净）：
+  - 取消 star：`addStar` → refresh → 进临时列表 → `unstar` → job `failed 0`，GitHub 上 star 已取消、临时列表成员归零、本地仓库消失、变更 `kind=unstarred`；
+  - 删分类（变未归类）：2 个仓库进临时分类 → `deleteList` → `meta.deleted=true`，GitHub 列表消失、本地列表移除、仓库回未归类且仍在 star 里；
+  - 删分类（移入另一分类）：源分类 2 条 → 目标分类收到 2 条、源分类消失、本地归属指向目标；
+  - 孤儿：把未 star 的仓库塞进临时分类 → `view().orphans` 报到、计数含孤儿 → `removeOrphan` 后 GitHub 成员归零、本地孤儿消失；
+  - 运行中发现的 bug：删分类的 targets 从本地 `list.repos` 算，本地没刷新过就是空的 → 「移入」变成「全移出」。已改成动手前 `github.fetchLists()` 取远端成员。
+- v0.2 面板（Playwright，`/tmp/ui-v02*.mjs`）：点「Star」表头 → 首行 `★ 459463`，再点 → `★ 1`；chip「未归类」→ 27 行；全选 → 「已选 114 个」+ 「取消 star（」按钮；预览对话框 `将写回 3 个仓库` + `tmp-v02-ui ← 3 个` + 三行 `未归类 → tmp-v02-ui`；删除分类对话框 `变未归类 / 移入另一个分类`，move 模式未选目标时确认按钮 disabled；无 pageerror。
 
 ## 当前数据状态（接手先看）
 
-- `state.json`（2026-11-22 15:57 复核）：114 个 star、8 个 Lists、**pending 0**、27 个仍未归类（关键词规则命中不了，需要人工）、6 条变更。
+- `state.json`（2026-11-22 18:30 E2E 收尾复核）：114 个 star、8 个 Lists、**pending 0**、27 个仍未归类（关键词规则命中不了，需要人工）、无孤儿、无悬空 list id。
 - 六个分类 Lists 已填充：AI Agent 与技能 42 / 音乐与音频 22 / 学习与教程 11 / LLM 与深度学习 7 / 前端与工具 2 / 量化交易 2，合计 86。
 - 原有 `skills`(1) 与 `📘 QT`(0) 未被改动；测试列表（`tmp-progress-test`、`tmp-progress-ui`）已删除、归属已还原。
 
@@ -101,13 +122,18 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 11. 同步完成后 Lists 的 `count` 还是旧快照值，要等下一次 `refresh` 才对；状态栏数字短暂不一致是正常的。
 12. GitHub `deleteUserList` **不会**清掉 item 上的归属：删完后仓库仍带着那个 list id（`viewer.lists` 里已经没有它）。要彻底清干净得对每个 item 调 `updateUserListsForItem(listIds: [])`；本地这边靠 `applyFetch` 的归零逻辑兜底。
 
+13. `deleteUserList` 的 input 字段是 `listId`（不是 `userListId`）；`RemoveStarInput` 只有 `starrableId`。脚本里用 `gh api graphql --input -`（JSON）而不是 `-f`，`-f` 会把变量字符串化。
+14. 作业是单飞的：同步/取消 star/删分类同时只允许一个，第二个会返回 `busy`；测试脚本必须等 `progress` 里 `running:false` 再断言。
+15. E2E 里直接从 GraphQL 改成员后，本地快照不会自动更新——要么先 `refresh`，要么依赖宿主在删分类前自己取远端成员。
+16. 取消 star 的探针会在变更记录里留下 `new` + `unstarred` 噪声（变更没有删除接口），测试时用一次性探针仓库，别用用户真在意的仓库。
+
 ## 下一步候选（按价值排）
 
 1. **把剩下 27 个未归类手工归掉**（86 条已同步上线）——数据价值最大的一步。可以顺手把 27 条里反复出现的词补进 `classify.js` 规则。
 2. 右栏仓库详情：release notes、最近提交列表（要额外的 compare/commits API，按需加载）。
 3. 定时抓取：复用 `dsh-schedule` 每天跑一次 `refresh`，有变更时通知。
 4. 规则可编辑 UI（现在只能改 `config.suggestRules` 整表替换）。
-5. 发布：建 remote、`gh repo edit --visibility public`、发 npm、投 awesome-dsh-plugin（这些按发版规则要先拿到用户明确确认）。
+5. 发版：v0.2 代码就绪，等用户确认后 `npm version 0.2.0 --no-git-tag-version` → commit → `git tag v0.2.0 && git push origin v0.2.0`，`release.yml` 会自动打包挂资产（不需要 npm）。
 
 ## 相关命令
 

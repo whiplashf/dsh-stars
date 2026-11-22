@@ -31,14 +31,19 @@ def api(payload):
 
 
 def sync_and_wait():
-    """sync 只启动后台任务；轮询 progress 直到 running=false，返回最终 job。"""
-    started = api({'action': 'sync'})
+    """先看预览（plan），再带 expectCount 启动 sync，轮询 progress 直到 running=false。"""
+    planned = api({'action': 'plan'})
+    if not planned.get('ok'):
+        sys.exit(f"plan 失败：{planned}")
+    expected = len(planned['value']['plan'])
+    started = api({'action': 'sync', 'expectCount': expected})
     if not started.get('ok'):
         sys.exit(f"sync 失败：{started}")
-    job = started['value'].get('syncJob')
+    job = started['value'].get('job') or started['value'].get('syncJob')
     while job and job.get('running'):
         time.sleep(0.4)
-        job = api({'action': 'progress'})['value'].get('syncJob')
+        value = api({'action': 'progress'})['value']
+        job = value.get('job') or value.get('syncJob')
     return job or {}
 
 

@@ -9,10 +9,12 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 这个插件做三件事：
 
 1. **看类型**：按关键词把 star 分成六类（AI Agent 与技能、LLM 与深度学习、前端与工具、学习与教程、音乐与音频、量化交易），并给每个未归类的仓库一条归类建议。建议只是建议，不会自动写。
-2. **分类查看**：左侧按「全部 / 未归类 / 每个 Lists / 变更」切换，支持搜索、只看归档、只看一年未更新、只看待同步；类型分布条上的「采纳全部建议」一次把建议批量暂存，再点一次同步写回。
-3. **跟踪变更**：每次抓取和上一次快照比对，产出新收藏、新版本、新提交、归档、Star 涨跌、取消收藏六种变更，并记「未读数」；Star 涨跌只有超过 10 个或 10% 才登记，避免 +1 噪声。
+2. **分类查看**：左侧按「全部 / 未归类 / 每个 Lists / 变更」切换；四维排序（最近 star / 最近更新 / star 数 / 名字，点表头即切）、chip 筛选（有新版本 / 30 天内更新 / 未归类 / 已归档）+ 语言筛选 + 搜索、多选与 Shift 区间；类型分布条上的「采纳全部建议」一次把建议批量暂存，再点一次同步写回。
+3. **结构操作**：取消 star（单行或批量，二次确认）、删除分类（先选「变未归类」或「移入另一个分类」，成员搬完才真正删）、清理孤儿成员（在分类里但已经不在 star 里的仓库）。这些都不走暂存，直接作为后台作业执行并显示进度。
 
-分类结果的**真源是 GitHub Lists**：面板里的归类先暂存在本地，点「同步到 GitHub」才用 GraphQL `updateUserListsForItem` 写回，所以在 GitHub 网页和手机上也看得到同样的分组。
+4. **跟踪变更**：每次抓取和上一次快照比对，产出新收藏、新版本、新提交、归档、Star 涨跌、取消收藏六种变更，并记「未读数」；Star 涨跌只有超过 10 个或 10% 才登记，避免 +1 噪声。
+
+分类结果的**真源是 GitHub Lists**：面板里的归类先暂存在本地，点「同步到 GitHub」先弹预览（写回多少条、每条从哪到哪），确认后才用 GraphQL `updateUserListsForItem` 写回，所以在 GitHub 网页和手机上也看得到同样的分组。
 
 ![面板](docs/preview.png)
 
@@ -58,8 +60,11 @@ dsh plugin --profile web add link:/path/to/dsh-stars
 
 - 状态文件：`$DSH_HOME/data/dsh-stars/state.json`（默认 `~/.dsh/data/dsh-stars/state.json`），可用 `config.stateFile` 覆盖。删掉它不会动 GitHub 上的任何数据，只会丢掉本地快照与待同步队列。
 - 面板只和 `POST /api/dsh-stars` 通信，走 `ctx.connection.fetch`（Owner Peer + Host/Origin 栅栏），浏览器拿不到 GitHub token。
-- action：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed` / `checkAuth`。
-- `sync` 只是**启动**后台任务并立刻返回 job（`running/total/done/applied/failed/current`），面板每 350ms 用 `progress` 轮询；跑完那次响应才带回完整视图。每写回一条就落盘，断掉不丢已完成的进度。
+- action：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `sync` / `progress` / `createList` / `unstar` / `deleteList` / `removeOrphan` / `markViewed` / `checkAuth`。
+- `plan` 只读，返回待写回的 `plan` 和 `summary`（按分类汇总的条数）。
+- `sync` 只是**启动**后台任务并立刻返回 job（`kind/running/total/done/applied/failed/current/meta`），面板每 350ms 用 `progress` 轮询；跑完那次响应才带回完整视图。每写回一条就落盘，断掉不丢已完成的进度。
+- `sync` 可带 `expectCount`：和预览时的条数不一致就返回 409，避免「看着 3 条、实际写了 30 条」。
+- `unstar` / `deleteList` 同样是后台作业（`job.kind` 分别是 `unstar` / `deleteList`）；`removeOrphan` 是单条即时操作。
 - 依赖 `gh` CLI 已登录；除 `PATH`/`HOME`/`LANG`/`TZ`/`GH_*` 外的环境变量不传给子进程，含 `TOKEN`/`SECRET`/`PASSWORD` 的一律剔除。
 
 ## 配置
@@ -76,6 +81,8 @@ dsh plugin --profile web add link:/path/to/dsh-stars
 
 - 首次抓取只建基线，不会把几百个仓库都报成「新收藏」。
 - 同步是**替换**语义：写回时用「已归属 − 待移出 ∪ 待加入」的完整列表覆盖，手工在网页上同时改同一个仓库可能被覆盖。
+- 取消 star 会同时把仓库移出所有 Lists（GitHub 的行为），本地记录里会留下一条 `unstarred` 变更；如果别的设备取消的 star，则记作 `gone`。
+- 删分类前会重新取一次远端成员（本地快照可能落后），成员搬完才删；中途失败就停在「分类还在、部分成员已搬走」的状态，重试即可继续。
 - 变更追踪的粒度是仓库级（release tag、pushedAt、archived、star 数），不是逐 commit 或逐文件。
 - 建议归类是关键词规则，不是模型；误判就在面板里改，规则可通过 `suggestRules` 调。没命中任何关键词的仓库会留在「未归类」等手工处理。
 - GitHub 的 `lists(first: 30)` 有 30 个上限；正好 30 个时归属信息可能不全，代码会回退用上一次的归属。
@@ -90,7 +97,7 @@ src/classify.js   归类规则（关键词命中 topics/描述/仓库名）
 client.js         浏览器半边：左栏图标 + 整页面板
 tests/            node:test 单测（store 的纯逻辑与边界）
 scripts/          验证脚本：smoke.mjs（只读冒烟）、roundtrip.py（真实写回往返）
-docs/             截图、设计细节（DETAIL.md）、交接笔记（HANDOFF.md）
+docs/             截图、设计细节（DETAIL.md）、v0.2 设计（DESIGN-v0.2.md）、ADR、交接笔记（HANDOFF.md）
 ```
 
 ## 开发
