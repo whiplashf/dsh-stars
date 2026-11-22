@@ -1,6 +1,6 @@
 {
   "name": "dsh-stars",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "DSH 插件：把 GitHub star 归进 Lists、批量归类、跟踪自上次查看后的变更。",
   "license": "MIT",
