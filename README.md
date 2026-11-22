@@ -24,6 +24,8 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 写回 GitHub Lists 需要 gh token 带 `user` scope：`gh auth refresh -s user`。只读功能（浏览、建议、变更 diff）不需要。
 
+接手 / 继续开发看 `docs/HANDOFF.md`（当前状态、决策理由、坑与下一步）。
+
 ## 结构
 
 ```
@@ -32,6 +34,7 @@ src/github.js     调 gh CLI 读 Lists/star、写 Lists（GraphQL，不碰 token
 src/store.js      本地快照 + 变更 diff + 待同步暂存 + 同步计划
 src/classify.js   归类规则（关键词命中 topics/描述/仓库名）
 client.js         浏览器半边：左栏图标 + 整页面板
+scripts/          验证脚本：smoke.mjs（只读冒烟）、roundtrip.py（真实写回往返）
 ```
 
 ## 数据与接口

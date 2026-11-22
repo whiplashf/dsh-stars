@@ -27,6 +27,7 @@
     "src",
     "cordis.patch.yml",
     "locale",
+    "scripts",
     "docs",
     "icon.svg",
     "README.md",
