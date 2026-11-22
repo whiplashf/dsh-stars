@@ -16,6 +16,10 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 ![面板](docs/preview.png)
 
+同步时顶部有进度条（百分比、已处理/总数、写回与失败数、当前仓库），写回在宿主后台按 `syncConcurrency` 并发跑，每写一条落盘：
+
+![同步进度](docs/progress.png)
+
 ## 安装
 
 插件放在本仓库，安装到 DSH profile：

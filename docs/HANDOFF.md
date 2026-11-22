@@ -67,6 +67,7 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 - 只读冒烟：`node scripts/smoke.mjs` → 114 repos / 87 suggestions / 113 unsorted / 二次抓取 changes=0。
 - 真实往返（当时队列干净时跑过，全绿）：建临时列表 → stage add → `applied 1`，GitHub `items.totalCount=1` → stage remove → `applied 1`，`totalCount=0` → `deleteUserList` 成功 → 列表与归属复原。脚本 `scripts/roundtrip.py`（**队列非空时不要跑**，见下面坑）。
 - 面板：Playwright 驱动实测搜索、chip 过滤（43 行）、勾选暂存（横幅 + `待同步` chip + 按钮计数）、采纳全部（86 条）、变更页（4 条）、无 pageerror。截图 `docs/preview.png`。
+- 归属归零修复（2026-11-22）：从 GitHub 删掉一个 list 后，本地 `repo.lists` 一直残留已删 id（`applyFetch` 里 `listMembership.get(name) ?? old?.lists` 的回退把「不属于任何 list」也回退成旧值），表现为「未归类 7 / 各 list 计数合计 87 对不上 114」。改成只有抓回 30 个 lists（`lists(first: 30)` 上限）时才回退；实测修复后未归类回到 27、悬空 id 0。
 - 进度条（2026-11-22）：临时列表暂存 8 条 → 点同步，Playwright 连拍实测进度条依次 `0/8 → 2/8 → 4/8 → 5/8 → 7/8`（fill 2%→88%）、结束后横幅「已同步 8 个仓库」、无 pageerror；随后 stage remove + 同步 + `deleteUserList` 复原，GitHub `items.totalCount` 归零，本地 114 star / pending 0 / 27 未归类。
 - 抓到并修掉的真 bug：`updateUserListsForItem` 的返回值曾写 `lists { totalCount }`，而 `totalCount` 只存在于 `items` 上，导致整条 mutation 无效（`applied 0`）。
 
@@ -89,6 +90,7 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `
 9. 同步进行中宿主会拒绝 `stage`/`acceptSuggestions` 并跳过 `refresh`（返回 busy 错误）；想测同步就等 `progress` 返回 `running:false`。
 10. 用 Node `fetch` 打 `https://192.168.31.212:3080` 要加 `NODE_TLS_REJECT_UNAUTHORIZED=0`（自签证书），否则只报 `fetch failed`。
 11. 同步完成后 Lists 的 `count` 还是旧快照值，要等下一次 `refresh` 才对；状态栏数字短暂不一致是正常的。
+12. GitHub `deleteUserList` **不会**清掉 item 上的归属：删完后仓库仍带着那个 list id（`viewer.lists` 里已经没有它）。要彻底清干净得对每个 item 调 `updateUserListsForItem(listIds: [])`；本地这边靠 `applyFetch` 的归零逻辑兜底。
 
 ## 下一步候选（按价值排）
 

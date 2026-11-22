@@ -132,8 +132,11 @@ export class Store {
     const hadBaseline = Object.keys(prev).length > 0
     const now = Date.now()
     const staleBefore = now - staleDays * 86_400_000
+    const lists = fetched.lists ?? []
+    // lists(first: 30) 有上限：抓回来正好 30 个时可能漏掉一部分归属，这种情况才回退到旧值。
+    const listCapHit = lists.length >= 30
     const listMembership = new Map()
-    for (const list of fetched.lists ?? []) {
+    for (const list of lists) {
       for (const name of list.repos ?? []) {
         if (!listMembership.has(name)) listMembership.set(name, [])
         listMembership.get(name).push(list.id)
@@ -148,7 +151,8 @@ export class Store {
       const name = repo.nameWithOwner
       if (!name) continue
       const old = prev[name]
-      const listing = listMembership.get(name) ?? old?.lists ?? []
+      // 不在任何 list 的仓库必须归零：否则删掉 GitHub 上的 list 后，本地会一直留着已删的 id。
+      const listing = listMembership.get(name) ?? (listCapHit ? old?.lists ?? [] : [])
       const merged = {
         ...repo,
         lists: [...new Set(listing)],
