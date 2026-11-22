@@ -147,6 +147,8 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 
 26. **首屏慢不是抓取慢**：浏览器会话里第一次打 `/api/dsh-stars` 要 ~1.6–2s（插件实例/路由首次命中），而同样请求在 Node 里只要 10ms；再叠上挂载就变成用户感知的「点开要等五六秒」。做法：`client.js` 的 `apply()` 里 `void warmUp()` 预热一次 `state`，并把结果存 `warmState` 给 `useState` 做初值；`readState` 有快照时永远先返回缓存、把过期刷新丢后台（`view().refreshing`），前端 `refreshing` 为真时每 900ms 轻量轮询、头部显示「正在刷新…」。实测点开到首行 2167ms → 431ms。
 
+27. **分页在前端做**：`state` 一次返回整份快照，面板按 `pageSize`（localStorage `dsh-stars.pageSize`，默认 50）切片渲染；换成服务端分页会把筛选/计数/跨页选择都拆成多次请求，得不偿失。`fetchStarred` 的 10 页上限已放开到 100 页（10000 个 star）——几千 star 的账号刷新会慢（每页 ~6s，翻页是游标串行的，没法并行），但首屏走缓存不受影响。
+
 ## 下一步候选（按价值排）
 
 1. **把剩下 27 个未归类手工归掉**（86 条已同步上线）——数据价值最大的一步。可以顺手把 27 条里反复出现的词补进 `classify.js` 规则。

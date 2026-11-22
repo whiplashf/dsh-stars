@@ -84,7 +84,13 @@ window.__ModuleLoader__.load({
       chipUnsorted: '未归类',
       chipArchived: '已归档',
       languageAll: '全部语言',
-      selectAllShown: (n) => `全选 ${n}`,
+      selectAllPage: (n) => `全选本页 ${n}`,
+      clearPage: '取消本页选择',
+      pageInfo: (page, total) => `第 ${page} / ${total} 页`,
+      prevPage: '上一页',
+      nextPage: '下一页',
+      perPage: '每页',
+      perPageHint: '每页显示多少个仓库',
       clearSelection: '清除选择',
       deleteList: '删除分类',
       unstar: '取消 star',
@@ -115,6 +121,7 @@ window.__ModuleLoader__.load({
       emptyChanges: '自上次查看后没有变化',
       selectAll: '全选',
       selected: (n) => `已选 ${n} 个`,
+      selectedOffPage: (n) => ` · 其他页 ${n} 个`,
       addTo: '归入列表…',
       removeFrom: '移出当前列表',
       createList: '新建列表',
@@ -229,6 +236,14 @@ window.__ModuleLoader__.load({
       emptyChanges: 'Nothing changed since your last visit',
       selectAll: 'Select all',
       selected: (n) => `${n} selected`,
+      selectedOffPage: (n) => ` · ${n} on other pages`,
+      selectAllPage: (n) => `Select this page (${n})`,
+      clearPage: 'Clear page selection',
+      pageInfo: (page, total) => `Page ${page} / ${total}`,
+      prevPage: 'Previous',
+      nextPage: 'Next',
+      perPage: 'Per page',
+      perPageHint: 'How many repositories to show per page',
       addTo: 'Add to list…',
       removeFrom: 'Remove from list',
       createList: 'New list',
@@ -356,6 +371,10 @@ window.__ModuleLoader__.load({
 .stars-distchip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .stars-distchip[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
 .stars-distcount{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
+.stars-pager{display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
+.stars-pagesize{height:24px;font-size:12px;padding:0 4px}
+.stars-pagebtn{height:24px;font-size:12px}
+.stars-selinfo{display:inline-flex;align-items:center;gap:6px}
 .stars-foot{padding:6px 16px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-caption);display:flex;gap:12px;flex:none;flex-wrap:wrap}
 .stars-auth{margin:12px 16px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-warn-primary);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:8px;font-size:12px}
 .stars-authtitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
@@ -480,6 +499,27 @@ window.__ModuleLoader__.load({
     const SORT_FIELDS = new Set(['starred', 'pushedAt', 'stars', 'name'])
     const DEFAULT_SORT = { key: 'starred', dir: 'desc' }
 
+    const PAGE_KEY = 'dsh-stars.pageSize'
+    const PAGE_SIZES = [25, 50, 100, 200]
+    const DEFAULT_PAGE_SIZE = 50
+
+    function readPageSize() {
+      try {
+        const value = Number(window.localStorage?.getItem(PAGE_KEY))
+        return PAGE_SIZES.includes(value) ? value : DEFAULT_PAGE_SIZE
+      } catch {
+        return DEFAULT_PAGE_SIZE
+      }
+    }
+
+    function writePageSize(value) {
+      try {
+        window.localStorage?.setItem(PAGE_KEY, String(value))
+      } catch {
+        // 读不到 localStorage 就只在内存里生效
+      }
+    }
+
     function readSort() {
       try {
         const [key, dir] = String(window.localStorage.getItem(SORT_KEY) ?? '').split(':')
@@ -567,6 +607,8 @@ window.__ModuleLoader__.load({
       const [chips, setChips] = React.useState(() => new Set())
       const [lang, setLang] = React.useState('all')
       const [sort, setSort] = React.useState(() => readSort())
+      const [pageSize, setPageSize] = React.useState(() => readPageSize())
+      const [page, setPage] = React.useState(0)
       const [suggestFilter, setSuggestFilter] = React.useState(null)
       const [selected, setSelected] = React.useState(() => new Set())
       const [busy, setBusy] = React.useState(false)
@@ -690,6 +732,14 @@ window.__ModuleLoader__.load({
         return sortRepos(filtered, sort)
       }, [chips, inTab, lang, query, sort, suggestFilter, suggestions])
 
+      // 分页：只在客户端切，数据仍是一次抓齐的整份快照（服务端分页会把筛选和计数拆成两次请求）。
+      const pageCount = Math.max(1, Math.ceil(shown.length / pageSize))
+      const safePage = Math.min(page, pageCount - 1)
+      const pageStart = safePage * pageSize
+      const pageRows = shown.slice(pageStart, pageStart + pageSize)
+      // 选中集可以跨页（翻页不清空），所以工具条要说明「有一部分不在当前页」。
+      const selectedOffPage = Math.max(0, selected.size - pageRows.filter((repo) => selected.has(repo.nameWithOwner)).length)
+
       const unread = data?.updatesUnread ?? 0
       // 更新页只显示「当前跟踪的仓库」：取消跟踪后它以前的条目也一并离开视野，
       // 这样这一页的语义和标签一致（历史条目仍留在 state 里，只是不再展示）。
@@ -722,6 +772,11 @@ window.__ModuleLoader__.load({
         lastToggled.current = null
       }, [tab, query, chips, lang])
 
+      // 换分类、改搜索、改筛选、改排序、改每页条数都回到第一页，否则会停在一个空页上。
+      React.useEffect(() => {
+        setPage(0)
+      }, [tab, query, chips, lang, sort, suggestFilter, pageSize])
+
       const toggle = (name, index, event) => {
         const shift = Boolean(event?.shiftKey) && lastToggled.current !== null
         setSelected((prev) => {
@@ -739,9 +794,17 @@ window.__ModuleLoader__.load({
         lastToggled.current = index
       }
 
-      const allShownSelected = shown.length > 0 && shown.every((repo) => selected.has(repo.nameWithOwner))
+      const allPageSelected = pageRows.length > 0 && pageRows.every((repo) => selected.has(repo.nameWithOwner))
       const toggleAll = () => {
-        setSelected(allShownSelected ? new Set() : new Set(shown.map((repo) => repo.nameWithOwner)))
+        const names = pageRows.map((repo) => repo.nameWithOwner)
+        setSelected((prev) => {
+          const next = new Set(prev)
+          for (const name of names) {
+            if (allPageSelected) next.delete(name)
+            else next.add(name)
+          }
+          return next
+        })
       }
 
       const stage = async (fullNames, { add = [], remove = [] }) => {
@@ -1051,7 +1114,9 @@ window.__ModuleLoader__.load({
         sortSelect,
         selected.size > 0
           ? h(React.Fragment, null,
-            h('span', { className: 'stars-selinfo' }, t('selected', selected.size)),
+            h('span', { className: 'stars-selinfo' },
+              t('selected', selected.size),
+              selectedOffPage > 0 ? t('selectedOffPage', selectedOffPage) : null),
             h('select', {
               className: 'stars-select',
               value: '',
@@ -1205,8 +1270,8 @@ window.__ModuleLoader__.load({
               h('th', { style: { width: 28 } }, h('input', {
                 className: 'stars-cb',
                 type: 'checkbox',
-                title: allShownSelected ? t('clearSelection') : t('selectAllShown', shown.length),
-                checked: allShownSelected,
+                title: allPageSelected ? t('clearPage') : t('selectAllPage', pageRows.length),
+                checked: allPageSelected,
                 onChange: toggleAll,
               })),
               sortTh('name', t('name')),
@@ -1214,7 +1279,23 @@ window.__ModuleLoader__.load({
               sortTh('stars', t('stars')),
               sortTh('pushedAt', t('updated'), 'stars-upd'),
               h('th', { style: { width: 92 } }, ''))),
-            h('tbody', null, ...shown.map((repo, index) => row(repo, index)))))
+            h('tbody', null, ...pageRows.map((repo, index) => row(repo, pageStart + index)))))
+
+      const pager = tab === 'updates' || tab === 'ops' || shown.length === 0 ? null : h('div', { className: 'stars-pager' },
+        h('label', { className: 'stars-selinfo', title: t('perPageHint') },
+          t('perPage'),
+          h('select', {
+            className: 'stars-select stars-pagesize',
+            value: pageSize,
+            onChange: (event) => {
+              const next = Number(event.target.value)
+              setPageSize(next)
+              writePageSize(next)
+            },
+          }, ...PAGE_SIZES.map((size) => h('option', { key: size, value: size }, String(size))))),
+        h('button', { className: 'stars-btn stars-pagebtn', disabled: safePage <= 0, onClick: () => setPage(safePage - 1) }, `‹ ${t('prevPage')}`),
+        h('span', { className: 'stars-selinfo' }, t('pageInfo', safePage + 1, pageCount)),
+        h('button', { className: 'stars-btn stars-pagebtn', disabled: safePage >= pageCount - 1, onClick: () => setPage(safePage + 1) }, `${t('nextPage')} ›`))
 
       const foot = h('div', { className: 'stars-foot' },
         h('span', null, `${repos.length} 个 star · ${lists.length} 个列表 · ${unsortedCount} 个未归类`),
@@ -1354,6 +1435,7 @@ window.__ModuleLoader__.load({
             toolbar,
             distStrip,
             tab === 'updates' ? updatesView : tab === 'ops' ? opsView : table,
+            pager,
             currentList && orphanNames.length > 0
               ? h('div', { className: 'stars-orphans' },
                 h('button', { className: 'stars-orphantoggle', onClick: () => setOrphansOpen((prev) => !prev) },

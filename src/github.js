@@ -318,7 +318,9 @@ export class GitHub {
     let viewer = null
     let cursor = null
     let total = 0
-    for (let page = 0; page < 10; page += 1) {
+    // 以前硬上限 10 页（1000 个 star），几千 star 的账号会被悄悄截断。
+    // 现在按 hasNextPage 一直翻，只留一个防呆上限（100 页 = 10000 个）。
+    for (let page = 0; page < 100; page += 1) {
       const data = await this.#limit(() => this.#graphql(`
         query ($cursor: String) {
           viewer {
