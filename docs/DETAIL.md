@@ -26,7 +26,19 @@ DSH 左侧栏的面板：把 GitHub star 归进 Lists，并告诉你自上次查
 - 同步失败时本地改动还在，重试即可；
 - 写回用的是完整归属列表（替换语义），不会把同一个仓库放到重复的 Lists。
 
-## 3. 变更追踪
+## 3. 首次运行：先检查 gh
+
+面板所有数据都走 `gh` CLI，所以打开面板时宿主先跑一次 `gh auth status --json hosts`（结果缓存 30 秒），把三种常见卡点变成一张卡而不是一句看不懂的报错：
+
+| 状态 | 面板表现 |
+| --- | --- |
+| 找不到 `gh`（`ENOENT`） | 卡片提示装 GitHub CLI，给官网链接 |
+| 未登录（`gh auth status` 报未认证） | 卡片给 `gh auth login`，附复制按钮 |
+| 已登录但 token 缺 `user` scope | 卡片给 `gh auth refresh -h github.com -s user`；**浏览/建议/暂存照常可用**，只有「同步到 GitHub」被禁用 |
+
+卡片在标题下方，带「复制」和「重新检查」（`checkAuth`，强制重新探测；探测通过后顺手抓一次数据）。缺 `gh` 或未登录时宿主不会再去发注定失败的抓取请求，直接渲染已有快照。
+
+## 4. 变更追踪
 
 每次抓取（打开面板超过 `minRefreshMs` 或手动点刷新）都会和上一次快照比对，产出六种变更：
 
@@ -43,13 +55,13 @@ Star 数每天小幅波动很正常，只有涨跌超过 `STAR_DELTA_MIN`（10 �
 
 变更最多保留 400 条。「变更」页之外，点「标记已读」把未读数清零。
 
-## 4. 统计口径
+## 5. 统计口径
 
 - 顶部显示快照时间、star 总数、未读变更；
 - 底部一行：star 数、Lists 数、未归类数、上次查看时间、GitHub 列表页入口；
 - 「只看一年未更新」用 `pushedAt` 判定，阈值是 `config.staleDays`（默认 365）。
 
-## 5. 边界与取舍
+## 6. 边界与取舍
 
 - 面板不写 GitHub token，也不直连 GitHub：所有请求走宿主的 `/api/dsh-stars`，宿主用已登录的 `gh` CLI。
 - 子进程环境做过裁剪（只留 `PATH`/`HOME`/`LANG`/`LOCALE`/`TZ`/`TERM`/`GH_*`，剔除含 `TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的变量），防止把 profile 里的密钥漏给 `gh`。

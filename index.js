@@ -53,6 +53,20 @@ export function apply(ctx, config = {}) {
   let inFlight = null
   let lastError = null
   /**
+   * gh 的登录状态。陌生人第一次打开面板时最常见的卡点不是 bug 而是没登录/缺 user scope，
+   * 所以把它当成一等状态暴露给面板，而不是等抓取失败再报一句看不懂的错。
+   */
+  let auth = null
+  let authAt = 0
+  const AUTH_TTL_MS = 30_000
+
+  async function probeAuth(force = false) {
+    if (!force && auth && Date.now() - authAt < AUTH_TTL_MS) return auth
+    auth = await github.probeAuth()
+    authAt = Date.now()
+    return auth
+  }
+  /**
    * 同步任务的实时进度。sync 不再是一次阻塞到结束的请求：
    * 启动后立刻返回，面板轮询 `progress`，所以 86 条写回中途也能看到 done/total。
    */
@@ -89,6 +103,7 @@ export function apply(ctx, config = {}) {
       suggestions: suggestAll(result.repos, rules),
       error: lastError,
       staleDays,
+      auth,
       syncJob: jobSnapshot(),
     }
   }
@@ -97,6 +112,12 @@ export function apply(ctx, config = {}) {
     await store.load()
     // 同步进行中不重抓：抓回来的 Lists 归属还是旧的，会把面板状态抖回去。
     if (syncJob?.running) return view()
+    const status = await probeAuth()
+    // 连不上 gh 的两种状态没必要再发一次注定失败的抓取，直接把引导带回去。
+    if (status.state === 'no-gh' || status.state === 'not-logged-in') {
+      if (!lastError) lastError = { code: 'unauthenticated', message: status.state === 'no-gh' ? '找不到 gh 命令' : 'gh 还没有登录' }
+      return view()
+    }
     const snapshotAt = store.state.snapshotAt
     const stale = !snapshotAt || Date.now() - Date.parse(snapshotAt) > Math.max(0, minRefreshMs)
     if (force || stale) {
@@ -146,6 +167,11 @@ export function apply(ctx, config = {}) {
 
   async function startSync({ dryRun = false } = {}) {
     await store.load()
+    const status = await probeAuth()
+    // 缺 user scope 时写回必然 403，提前说清楚比跑到一半失败好。
+    if (status.state === 'missing-user-scope') {
+      throw new GitHubError('scope', 'gh token 缺少 user scope，先运行 gh auth refresh -h github.com -s user；只读和暂存不受影响')
+    }
     if (syncJob?.running) return jobSnapshot()
     const plans = store.planSync()
     if (dryRun || plans.length === 0) {
@@ -230,6 +256,20 @@ export function apply(ctx, config = {}) {
         // 立刻返回 job（running=true），写回在后台继续；面板用 progress 轮询。
         const job = await startSync({ dryRun: Boolean(payload.dryRun) })
         return { ...view(), syncJob: job }
+      }
+      case 'checkAuth': {
+        await store.load()
+        const status = await probeAuth(true)
+        if (status.state === 'ok') lastError = null
+        // 刚在终端里登录完就点「重新检查」时，顺便把数据抓回来。
+        if (status.state === 'ok') {
+          try {
+            await refresh()
+          } catch {
+            // 抓取失败照旧走 view().error。
+          }
+        }
+        return view()
       }
       case 'progress': {
         await store.load()

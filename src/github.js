@@ -52,6 +52,32 @@ function shortMessage(stderr, fallback) {
   return text.split('\n').filter(Boolean).slice(-1)[0].slice(0, 300)
 }
 
+/**
+ * 把 `gh auth status --json hosts` 的输出整理成面板能直接渲染的状态。
+ * 纯函数，方便单测；不碰网络、不碰文件。
+ */
+export function parseAuthStatus(stdout) {
+  let parsed
+  try {
+    parsed = JSON.parse(String(stdout || ''))
+  } catch {
+    return { state: 'unknown', detail: '无法解析 gh auth status 的输出' }
+  }
+  const raw = parsed?.hosts?.['github.com']
+  const entries = Array.isArray(raw) ? raw : raw ? [raw] : []
+  const entry = entries.find((each) => each?.active) ?? entries[0] ?? null
+  if (!entry || (entry.state && entry.state !== 'success')) {
+    return { state: 'not-logged-in', command: 'gh auth login', login: entry?.login ?? null }
+  }
+  const scopes = String(entry.scopes ?? '').split(/[,\s]+/).filter(Boolean)
+  const login = entry.login ?? null
+  // 写回 Lists 需要 user scope；没有它只读功能仍然可用。
+  if (!scopes.includes('user')) {
+    return { state: 'missing-user-scope', login, scopes, command: 'gh auth refresh -h github.com -s user' }
+  }
+  return { state: 'ok', login, scopes }
+}
+
 export class GitHub {
   #ghPath
   #timeoutMs
@@ -105,11 +131,11 @@ export class GitHub {
         stdout += chunk
       })
       child.stderr.on('data', (chunk) => { stderr += chunk })
-      child.on('close', (code) => {
-        if (code === 0) finish(resolve, stdout)
+      child.on('close', (exitCode) => {
+        if (exitCode === 0) finish(resolve, stdout)
         else {
           const code = classify(stderr)
-          finish(reject, new GitHubError(code, withHint(code, shortMessage(stderr, `gh 退出码 ${code}`))))
+          finish(reject, new GitHubError(code, withHint(code, shortMessage(stderr, `gh 退出码 ${exitCode}`))))
         }
       })
       if (input !== undefined) child.stdin.end(input)
@@ -277,6 +303,22 @@ export class GitHub {
       total: starredPart.total,
       lists: listsPart.lists,
       repos: starredPart.repos,
+    }
+  }
+
+  /** 探测 gh 是否可用、是否登录、token 有没有 user scope；失败不抛，交给面板显示。 */
+  async probeAuth() {
+    try {
+      return parseAuthStatus(await this.#run(['auth', 'status', '--json', 'hosts']))
+    } catch (error) {
+      const message = error?.message ?? String(error)
+      if (/找不到 gh|gh 启动失败/.test(message)) {
+        return { state: 'no-gh', command: 'https://cli.github.com/', detail: message }
+      }
+      if (error?.code === 'unauthenticated') {
+        return { state: 'not-logged-in', command: 'gh auth login', detail: message }
+      }
+      return { state: 'unknown', detail: message }
     }
   }
 

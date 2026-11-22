@@ -79,8 +79,22 @@ window.__ModuleLoader__.load({
         gone: '取消收藏',
       },
       errorPrefix: '操作失败',
+      // 首次运行的 gh 检查卡
+      authTitle: '先把 gh 连上',
+      authNoGh: '这台机器上找不到 gh 命令，装好 GitHub CLI 再回来点「重新检查」。',
+      authNotLoggedIn: 'gh 还没登录。在终端里跑下面这行，登录完回来点「重新检查」。',
+      authScope: 'gh 已登录，但 token 缺少 user scope。只读浏览和暂存都能用，写回 GitHub 之前要补上这个权限。',
+      authUnknown: '读不到 gh 的登录状态，可以照常浏览；写回可能失败。',
+      authCommand: '终端命令',
+      copy: '复制',
+      copied: '已复制',
+      recheck: '重新检查',
+      syncBlocked: '补上 user scope 后才能同步',
+      readOnlyOk: '只读可用',
+      authLogin: (who) => `已登录为 ${who}`,
     }
 
+    // 英文表只作为缺键回退：面板本身不做语言切换（这个市场里中文 UI 是常态）。
     const en = {
       panel: 'Star manager',
       title: 'Star manager',
@@ -210,6 +224,12 @@ window.__ModuleLoader__.load({
 .stars-distchip[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
 .stars-distcount{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
 .stars-foot{padding:6px 16px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-caption);display:flex;gap:12px;flex:none;flex-wrap:wrap}
+.stars-auth{margin:12px 16px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-warning-primary);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:8px;font-size:12px}
+.stars-authtitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.stars-authbody{color:var(--dsw-alias-label-secondary);line-height:1.6}
+.stars-authcmd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.stars-authcmd code{font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-size:12px;padding:5px 8px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);user-select:all}
+.stars-authrow{display:flex;align-items:center;gap:8px}
 .stars-progress{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .stars-progresslabel{font-weight:600;white-space:nowrap}
 .stars-progresstrack{position:relative;height:6px;flex:1;min-width:120px;max-width:520px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
@@ -296,9 +316,10 @@ window.__ModuleLoader__.load({
       const [creating, setCreating] = React.useState(false)
       const [newListName, setNewListName] = React.useState('')
       const [job, setJob] = React.useState(null)
+      const [copied, setCopied] = React.useState(false)
       const pollingRef = React.useRef(false)
       const t = React.useMemo(() => (key, ...args) => {
-        const value = zh[key]
+        const value = zh[key] ?? en[key]
         return typeof value === 'function' ? value(...args) : value ?? key
       }, [])
 
@@ -469,6 +490,11 @@ window.__ModuleLoader__.load({
       const syncing = Boolean(job?.running)
       const percent = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0
 
+      const authState = data.auth?.state ?? 'unknown'
+      const authBlocked = authState === 'no-gh' || authState === 'not-logged-in'
+      const scopeMissing = authState === 'missing-user-scope'
+      const authCommand = data.auth?.command ?? ''
+
       const head = h('div', { className: 'stars-head' },
         h(StarIcon, { size: 18 }),
         h('div', { className: 'stars-headtext' },
@@ -480,12 +506,39 @@ window.__ModuleLoader__.load({
         h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => run({ action: 'refresh' }).catch(() => {}) }, busy || syncing ? '…' : t('refresh')),
         h('button', {
           className: 'stars-btn',
-          disabled: busy || syncing || pendingCount === 0,
+          disabled: busy || syncing || pendingCount === 0 || authBlocked || scopeMissing,
+          title: authBlocked || scopeMissing ? t('syncBlocked') : undefined,
           onClick: () => doSync().catch(() => {}),
         }, syncing
           ? `${t('syncing')} ${job.done}/${job.total}`
           : pendingCount > 0 ? `${t('sync')} (${pendingCount})` : t('sync')),
         h('button', { className: 'stars-btn', disabled: unread === 0 || syncing, onClick: () => run({ action: 'markViewed' }).catch(() => {}) }, t('markRead')))
+
+      const authCard = authState === 'no-gh' || authState === 'not-logged-in' || scopeMissing
+        ? h('div', { className: 'stars-auth', role: 'status' },
+          h('div', { className: 'stars-authtitle' }, t('authTitle')),
+          h('div', { className: 'stars-authbody' },
+            authState === 'no-gh' ? t('authNoGh') : authState === 'not-logged-in' ? t('authNotLoggedIn') : t('authScope')),
+          authCommand
+            ? h('div', { className: 'stars-authcmd' },
+              h('span', { className: 'stars-authbody' }, `${t('authCommand')}：`),
+              h('code', null, authCommand),
+              h('button', {
+                className: 'stars-btn',
+                style: { height: 22 },
+                onClick: () => {
+                  navigator.clipboard?.writeText(authCommand).then(() => {
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 1500)
+                  }).catch(() => {})
+                },
+              }, copied ? t('copied') : t('copy')))
+            : null,
+          h('div', { className: 'stars-authrow' },
+            h('button', { className: 'stars-btn', style: { height: 22 }, disabled: busy, onClick: () => run({ action: 'checkAuth' }).catch(() => {}) }, t('recheck')),
+            scopeMissing ? h('span', { className: 'stars-authbody' }, t('readOnlyOk')) : null,
+            data.auth?.login ? h('span', { className: 'stars-authbody', style: { marginLeft: 'auto' } }, t('authLogin', data.auth.login)) : null))
+        : null
 
       const progressStrip = syncing
         ? h('div', { className: 'stars-progress', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': percent },
@@ -637,6 +690,7 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'stars-root' },
         head,
+        authCard,
         progressStrip,
         (notice || error) ? h('div', { className: 'stars-banner', 'data-tone': notice?.tone ?? 'error' },
           h('span', null, notice?.text ?? `${t('errorPrefix')}：${error}`),

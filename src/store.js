@@ -17,6 +17,7 @@ export function blankState() {
     repos: {},
     order: [],
     snapshotAt: null,
+    baselineAt: null,
     lastViewedAt: null,
     changes: [],
   }
@@ -129,7 +130,9 @@ export class Store {
    */
   applyFetch(fetched, { staleDays = 365 } = {}) {
     const prev = this.#state.repos
-    const hadBaseline = Object.keys(prev).length > 0
+    // 用落盘的 baselineAt 判断「是否曾经建立过基线」：只看 repos 是否为空的话，
+    // 某次抓回 0 个仓库后再抓，会把全新仓库误当成首次基线，漏掉 new 变更。
+    const hadBaseline = Boolean(this.#state.baselineAt) || Object.keys(prev).length > 0
     const now = Date.now()
     const staleBefore = now - staleDays * 86_400_000
     const lists = fetched.lists ?? []
@@ -192,6 +195,7 @@ export class Store {
     this.#state.lists = fetched.lists ?? []
     this.#state.viewer = fetched.viewer ?? this.#state.viewer
     this.#state.snapshotAt = new Date().toISOString()
+    this.#state.baselineAt ??= this.#state.snapshotAt
     // 同一个仓库的同一种变更只留最新一条：反复刷新时不会堆出一串重复的「有新提交」。
     const fresh = new Set(changes.map((change) => `${change.kind}:${change.nameWithOwner}`))
     this.#state.changes = [

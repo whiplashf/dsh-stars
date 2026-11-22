@@ -8,8 +8,8 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 这个插件做三件事：
 
-1. **看类型**：把 114 个 star 按主题分成六类，并给每个仓库一条归类建议（只建议，不自动写）。
-2. **分类查看**：左侧按「全部 / 未归类 / 每个 Lists / 变更」切换，支持搜索、只看归档、只看一年未更新、只看待同步；类型分布条右侧的「采纳全部建议」一次把几十条建议暂存好，再点一次同步写回。
+1. **看类型**：按关键词把 star 分成六类（AI Agent 与技能、LLM 与深度学习、前端与工具、学习与教程、音乐与音频、量化交易），并给每个未归类的仓库一条归类建议。建议只是建议，不会自动写。
+2. **分类查看**：左侧按「全部 / 未归类 / 每个 Lists / 变更」切换，支持搜索、只看归档、只看一年未更新、只看待同步；类型分布条上的「采纳全部建议」一次把建议批量暂存，再点一次同步写回。
 3. **跟踪变更**：每次抓取和上一次快照比对，产出新收藏、新版本、新提交、归档、Star 涨跌、取消收藏六种变更，并记「未读数」；Star 涨跌只有超过 10 个或 10% 才登记，避免 +1 噪声。
 
 分类结果的**真源是 GitHub Lists**：面板里的归类先暂存在本地，点「同步到 GitHub」才用 GraphQL `updateUserListsForItem` 写回，所以在 GitHub 网页和手机上也看得到同样的分组。
@@ -22,13 +22,61 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 ## 安装
 
-插件放在本仓库，安装到 DSH profile：
+在 DSH 的插件市场里搜 `dsh-stars` 安装，或从命令行装 npm 包：
 
-用 `plugin_manager` 的 `install_bundle` 指向本目录即可（profile 里会写入 `link:` 依赖）。本地目录是软链形式，装完刷新页面就生效，不需要重启 `dsh-web`；左侧栏出现「Star 管理」入口。
+```bash
+dsh plugin --profile web add dsh-stars
+```
 
-写回 GitHub Lists 需要 gh token 带 `user` scope：`gh auth refresh -s user`。只读功能（浏览、建议、变更 diff）不需要。
+本地开发时直接装目录（profile 里写入 `link:` 依赖，改客户端代码刷新即可）：
 
-接手 / 继续开发看 `docs/HANDOFF.md`（当前状态、决策理由、坑与下一步）。
+```bash
+dsh plugin --profile web add link:/path/to/dsh-stars
+```
+
+装完刷新页面，左侧栏出现「Star 管理」入口。
+
+### 第一次使用
+
+面板所有数据都通过 `gh` CLI 拿，所以需要：
+
+1. 装好 [GitHub CLI](https://cli.github.com/)（`gh --version` 能跑）。
+2. `gh auth login` 登录。
+3. 写回 Lists 需要 token 带 `user` scope：
+
+   ```bash
+   gh auth refresh -h github.com -s user
+   ```
+
+没登录或缺 scope 时，面板顶部会显示一张检查卡，写明缺什么、给出可直接复制的命令，点「重新检查」重新探测。缺 `user` scope 时**浏览、建议、暂存都能用**，只是「同步到 GitHub」按钮不可点。
+
+刷新数据靠 `gh` 的 API 调用，star 很多时首次抓取需要几十秒（GitHub 的 Lists 归属要按列表分页拉）。
+
+## 数据与接口
+
+- 状态文件：`$DSH_HOME/data/dsh-stars/state.json`（默认 `~/.dsh/data/dsh-stars/state.json`），可用 `config.stateFile` 覆盖。删掉它不会动 GitHub 上的任何数据，只会丢掉本地快照与待同步队列。
+- 面板只和 `POST /api/dsh-stars` 通信，走 `ctx.connection.fetch`（Owner Peer + Host/Origin 栅栏），浏览器拿不到 GitHub token。
+- action：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed` / `checkAuth`。
+- `sync` 只是**启动**后台任务并立刻返回 job（`running/total/done/applied/failed/current`），面板每 350ms 用 `progress` 轮询；跑完那次响应才带回完整视图。每写回一条就落盘，断掉不丢已完成的进度。
+- 依赖 `gh` CLI 已登录；除 `PATH`/`HOME`/`LANG`/`TZ`/`GH_*` 外的环境变量不传给子进程，含 `TOKEN`/`SECRET`/`PASSWORD` 的一律剔除。
+
+## 配置
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `stateFile` | `$DSH_HOME/data/dsh-stars/state.json` | 状态文件路径 |
+| `minRefreshMs` | `600000` | 打开面板时快照超过这个时长才重新抓取 |
+| `staleDays` | `365` | 超过多少天没有 push 标为「一年未更新」 |
+| `suggestRules` | 内置六类 | 整表替换归类规则，每项 `{ name, keywords }`；关键词命中 topics、描述或仓库名 |
+| `syncConcurrency` | `4` | 同步写回的并发数（1–8） |
+
+## 已知边界
+
+- 首次抓取只建基线，不会把几百个仓库都报成「新收藏」。
+- 同步是**替换**语义：写回时用「已归属 − 待移出 ∪ 待加入」的完整列表覆盖，手工在网页上同时改同一个仓库可能被覆盖。
+- 变更追踪的粒度是仓库级（release tag、pushedAt、archived、star 数），不是逐 commit 或逐文件。
+- 建议归类是关键词规则，不是模型；误判就在面板里改，规则可通过 `suggestRules` 调。没命中任何关键词的仓库会留在「未归类」等手工处理。
+- GitHub 的 `lists(first: 30)` 有 30 个上限；正好 30 个时归属信息可能不全，代码会回退用上一次的归属。
 
 ## 结构
 
@@ -38,30 +86,22 @@ src/github.js     调 gh CLI 读 Lists/star、写 Lists（GraphQL，不碰 token
 src/store.js      本地快照 + 变更 diff + 待同步暂存 + 同步计划
 src/classify.js   归类规则（关键词命中 topics/描述/仓库名）
 client.js         浏览器半边：左栏图标 + 整页面板
+tests/            node:test 单测（store 的纯逻辑与边界）
 scripts/          验证脚本：smoke.mjs（只读冒烟）、roundtrip.py（真实写回往返）
+docs/             截图、设计细节（DETAIL.md）、交接笔记（HANDOFF.md）
 ```
 
-## 数据与接口
+## 开发
 
-- 状态文件：`$DSH_HOME/data/dsh-stars/state.json`（默认 `~/.dsh/data/dsh-stars/state.json`），可用 `config.stateFile` 覆盖。
-- 面板只和 `POST /api/dsh-stars` 通信，走 `ctx.connection.fetch`（Owner Peer + Host/Origin 栅栏），浏览器拿不到 GitHub token。
-- action：`state` / `refresh` / `stage` / `acceptSuggestions` / `sync` / `progress` / `createList` / `markViewed`。
-- `sync` 只是**启动**后台任务并立刻返回 job（`running/total/done/applied/failed/current`），面板每 350ms 用 `progress` 轮询；跑完那次响应才带回完整视图。每写回一条就落盘，断掉不丢已完成的进度。
-- 依赖 `gh` CLI 已登录（`gh auth status`）；除 `PATH`/`HOME`/`LANG`/`TZ`/`GH_*` 外的环境变量不传给子进程，含 `TOKEN`/`SECRET`/`PASSWORD` 的一律剔除。
+```bash
+npm run check   # 语法检查
+npm test        # node:test 单测
+```
 
-## 配置
+- 只验证过 DSH `0.2.2-rc.3`（`package.json` 的 `engines.dsh` 钉了这个范围）。
+- 改宿主代码（`index.js`、`src/`）后，用 `plugin_manager` 把 `include:dsh-stars` 关一次再开一次即可热重载，不要重启 `dsh-web`。
+- 改 `client.js` 后刷新页面即可。
 
-| 键 | 默认 | 说明 |
-| --- | --- | --- |
-| `stateFile` | `$DSH_HOME/data/dsh-stars/state.json` | 状态文件路径 |
-| `minRefreshMs` | `600000` | 打开面板时快照超过这个时长才重新抓取 |
-| `staleDays` | `365` | 超过多少天没有 push 标为「一年未更新」 |
-| `suggestRules` | 内置六类 | 整表替换归类规则，每项 `{ name, keywords }` |
-| `syncConcurrency` | `4` | 同步写回的并发数（1–8）；86 条串行约 1 分钟，4 并发约 25 秒 |
+## 许可
 
-## 已知边界
-
-- 首次抓取只建基线，不会把 100 多个仓库都报成「新收藏」。
-- 同步是**替换**语义：写回时用「已归属 − 待移出 ∪ 待加入」的完整列表覆盖，手工在网页上同时改同一个仓库可能被覆盖。
-- 变更追踪的粒度是仓库级（release tag、pushedAt、archived、star 数），不是逐 commit 或逐文件。
-- 建议归类是关键词规则，不是模型；误判就在面板里改，规则可通过 `suggestRules` 调。
+MIT

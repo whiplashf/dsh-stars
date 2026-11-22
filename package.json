@@ -2,7 +2,7 @@
   "name": "dsh-stars",
   "version": "0.1.0",
   "type": "module",
-  "description": "Star 管理器：把 GitHub star 归类成 Lists、批量归类、跟踪自上次查看后的变更。",
+  "description": "DSH 插件：把 GitHub star 归进 Lists、批量归类、跟踪自上次查看后的变更。",
   "license": "MIT",
   "keywords": [
     "dsh",
@@ -12,13 +12,15 @@
     "stars"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.3 <0.3.0-0"
   },
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
@@ -26,7 +28,7 @@
     "client.js",
     "src",
     "cordis.patch.yml",
-    "locale",
+    "assets",
     "scripts",
     "docs",
     "icon.svg",
@@ -34,7 +36,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check index.js && node --check client.js && node --check src/github.js && node --check src/store.js && node --check src/classify.js"
+    "check": "node --check index.js && node --check client.js && node --check src/github.js && node --check src/store.js && node --check src/classify.js",
+    "test": "node --test \"tests/**/*.test.js\""
   },
   "dsh": {
     "bundle": {
@@ -46,5 +49,25 @@
       "inject": []
     }
   },
-  "author": "whiplashf"
+  "author": "whiplashf",
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whiplashf/dsh-stars.git"
+  },
+  "homepage": "https://github.com/whiplashf/dsh-stars#readme",
+  "bugs": {
+    "url": "https://github.com/whiplashf/dsh-stars/issues"
+  }
 }
