@@ -369,7 +369,7 @@ export function apply(ctx, config = {}) {
         }
         // 成员的真相在 GitHub：本地快照可能落后（在网页上往分类里加过仓库），
         // 所以删分类前先取一次远端成员，别按旧列表「空分类」直接删掉、把成员变成孤儿。
-        const remote = (await github.fetchLists()).lists.find((item) => item.id === listId) ?? null
+        const remote = await github.fetchListMembers(listId)
         const list = remote ?? cached
         const members = remote ? remote.repos : cached.repos ?? []
         const remoteIds = remote?.itemIds ?? {}

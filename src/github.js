@@ -82,7 +82,9 @@ export class GitHub {
   #ghPath
   #timeoutMs
   #active = 0
-  #maxConcurrent = 3
+  // gh 每次调用都起一个子进程、GitHub 单次往返 ~0.7s，3 并发是瓶颈；
+  // 6 并发仍远低于 GitHub 的次级限流阈值（写操作按条串行提交）。
+  #maxConcurrent = 6
 
   constructor({ ghPath = 'gh', timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     this.#ghPath = ghPath || 'gh'
@@ -171,7 +173,44 @@ export class GitHub {
     }
   }
 
-  /** 当前账号与他的全部 Lists（含每个 List 的仓库归属，超过 100 个自动翻页）。 */
+  /** 分页取一个 Lists 的成员（超过 100 个才需要第二页）。 */
+  async #listMembers(listId, first, firstIds) {
+    const members = [...first]
+    const itemIds = { ...firstIds }
+    let cursor = null
+    // 入口只在 pageInfo.hasNextPage 时调用，这里接着翻后面的页。
+    for (let i = 0; i < 20; i += 1) {
+      const chunk = await this.#limit(() => this.#graphql(`
+        query ($id: ID!, $cursor: String) {
+          node(id: $id) {
+            ... on UserList {
+              items(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes { ... on Repository { id nameWithOwner } }
+              }
+            }
+          }
+        }
+      `, { id: listId, cursor }))
+      const items = chunk?.node?.items
+      for (const item of items?.nodes ?? []) {
+        if (item?.nameWithOwner && !itemIds[item.nameWithOwner]) {
+          members.push(item.nameWithOwner)
+          if (item.id) itemIds[item.nameWithOwner] = item.id
+        }
+      }
+      if (!items?.pageInfo?.hasNextPage) break
+      cursor = items.pageInfo.endCursor
+    }
+    return { members, itemIds }
+  }
+
+  /**
+   * 当前账号与他的全部 Lists（含每个 List 的仓库归属）。
+   *
+   * 一次请求取回所有列表的前 100 个成员：GitHub 的单次往返就要 0.7s 以上，
+   * 按列表逐个查（1+N 次串行）在 8 个列表时就要 8s，是这个面板最贵的路径之一。
+   */
   async fetchLists() {
     const data = await this.#graphql(`
       query {
@@ -184,7 +223,11 @@ export class GitHub {
               name
               description
               isPrivate
-              items(first: 1) { totalCount }
+              items(first: 100) {
+                totalCount
+                pageInfo { hasNextPage }
+                nodes { ... on Repository { id nameWithOwner } }
+              }
             }
           }
         }
@@ -194,35 +237,21 @@ export class GitHub {
     const nodes = data?.viewer?.lists?.nodes ?? []
     const lists = []
     for (const node of nodes) {
-      const total = node?.items?.totalCount ?? 0
-      const members = []
-      const itemIds = {}
-      let cursor = null
-      for (let page = 0; page < 20; page += 1) {
-        if (page > 0 && total <= members.length) break
-        const chunk = await this.#limit(() => this.#graphql(`
-          query ($id: ID!, $cursor: String) {
-            node(id: $id) {
-              ... on UserList {
-                items(first: 100, after: $cursor) {
-                  totalCount
-                  pageInfo { hasNextPage endCursor }
-                  nodes { ... on Repository { id nameWithOwner } }
-                }
-              }
-            }
-          }
-        `, { id: node.id, cursor }))
-        const items = chunk?.node?.items
-        for (const item of items?.nodes ?? []) {
-          if (item?.nameWithOwner) {
-            members.push(item.nameWithOwner)
-            // 孤儿成员不在 star 列表里，只能从这里拿到 node id（移出分类要用）。
-            if (item.id) itemIds[item.nameWithOwner] = item.id
-          }
+      const items = node?.items
+      const total = items?.totalCount ?? 0
+      let members = []
+      let itemIds = {}
+      for (const item of items?.nodes ?? []) {
+        if (item?.nameWithOwner) {
+          members.push(item.nameWithOwner)
+          // 孤儿成员不在 star 列表里，只能从这里拿到 node id（移出分类要用）。
+          if (item.id) itemIds[item.nameWithOwner] = item.id
         }
-        if (!items?.pageInfo?.hasNextPage) break
-        cursor = items.pageInfo.endCursor
+      }
+      if (items?.pageInfo?.hasNextPage) {
+        const rest = await this.#listMembers(node.id, members, itemIds)
+        members = rest.members
+        itemIds = rest.itemIds
       }
       lists.push({
         id: node.id,
@@ -235,6 +264,52 @@ export class GitHub {
       })
     }
     return { viewer, lists }
+  }
+
+  /** 只查一个 Lists 的成员：删分类前核查用，不必把所有列表都拉一遍。 */
+  async fetchListMembers(listId) {
+    const data = await this.#graphql(`
+      query ($id: ID!) {
+        node(id: $id) {
+          ... on UserList {
+            id
+            name
+            description
+            isPrivate
+            items(first: 100) {
+              totalCount
+              pageInfo { hasNextPage }
+              nodes { ... on Repository { id nameWithOwner } }
+            }
+          }
+        }
+      }
+    `, { id: listId })
+    const node = data?.node
+    if (!node?.id) return null
+    const items = node.items
+    let members = []
+    let itemIds = {}
+    for (const item of items?.nodes ?? []) {
+      if (item?.nameWithOwner) {
+        members.push(item.nameWithOwner)
+        if (item.id) itemIds[item.nameWithOwner] = item.id
+      }
+    }
+    if (items?.pageInfo?.hasNextPage) {
+      const rest = await this.#listMembers(node.id, members, itemIds)
+      members = rest.members
+      itemIds = rest.itemIds
+    }
+    return {
+      id: node.id,
+      name: node.name ?? '',
+      description: node.description ?? '',
+      isPrivate: Boolean(node.isPrivate),
+      count: items?.totalCount ?? members.length,
+      repos: members,
+      itemIds,
+    }
   }
 
   /** 全部 star 仓库，按收藏时间倒序，最多 10 页（1000 个）。 */
