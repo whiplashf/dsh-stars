@@ -357,8 +357,8 @@ export class GitHub {
   async deleteList(listId) {
     const data = await this.#graphql(`
       mutation ($listId: ID!) {
-        deleteUserList(input: { userListId: $listId }) {
-          userList { id name }
+        deleteUserList(input: { listId: $listId }) {
+          user { login }
         }
       }
     `, { listId })

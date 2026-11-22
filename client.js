@@ -23,6 +23,8 @@ window.__ModuleLoader__.load({
       sync: '同步到 GitHub',
       syncing: '同步中…',
       syncProgress: '同步进度',
+      unstarProgress: '取消 star 进度',
+      deleteListProgress: '删除分类进度',
       syncDone: '同步完成',
       progressMeta: (done, total, applied, failed) => `${done}/${total} 已处理 · 写回 ${applied}${failed > 0 ? ` · 失败 ${failed}` : ''}`,
       progressCurrent: (name) => `正在写 ${name}`,
@@ -40,6 +42,37 @@ window.__ModuleLoader__.load({
       onlyArchived: '已归档',
       onlyStale: '超一年未更新',
       onlyPending: '待同步',
+      sortBy: '排序',
+      sortStarred: '最近 star',
+      sortPushed: '最近更新',
+      sortStars: 'Star 数',
+      sortName: '名字',
+      chipNewRelease: '有新版本',
+      chipRecent: '30 天内更新',
+      chipUnsorted: '未归类',
+      chipArchived: '已归档',
+      languageAll: '全部语言',
+      selectAllShown: (n) => `全选 ${n}`,
+      clearSelection: '清除选择',
+      deleteList: '删除分类',
+      unstar: '取消 star',
+      remove: '移出',
+      deleteTitle: (name) => `删除分类「${name}」`,
+      deleteEmptyHint: '这个分类是空的，删除后不可恢复。',
+      deleteBusyHint: (n) => `里面有 ${n} 个仓库，先选择它们的去向：`,
+      deleteToUnsorted: '变未归类',
+      deleteToMove: '移入另一个分类',
+      deleteTarget: '目标分类',
+      deleteConfirm: '删除分类',
+      unstarTitle: (n) => `取消 star（${n} 个仓库）`,
+      unstarHint: '取消后这些仓库会从你的 star 列表和所有分类里消失，本地记录也会移除。',
+      unstarRest: (n) => `…等 ${n} 个`,
+      unstarConfirm: '取消 star',
+      writeBack: (n) => `写回 ${n} 个仓库`,
+      planTitle: (n) => `将写回 ${n} 个仓库`,
+      planRemoved: (n) => `移出分类 ${n} 个`,
+      planMore: (n) => `还有 ${n} 条未展开`,
+      planEmpty: '没有需要写回的变更',
       name: '仓库',
       type: '类型',
       stars: 'Star',
@@ -77,6 +110,7 @@ window.__ModuleLoader__.load({
         archived: '归档',
         stars: 'Star 变化',
         gone: '取消收藏',
+        unstarred: '取消 star',
       },
       errorPrefix: '操作失败',
       // 首次运行的 gh 检查卡
@@ -170,6 +204,7 @@ window.__ModuleLoader__.load({
 .stars-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;white-space:nowrap}
 .stars-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .stars-btn:disabled{opacity:.5;cursor:default}
+.stars-btn[data-kind=danger]{background:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);color:#fff}
 .stars-btn[data-kind=primary]{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
 .stars-btn[data-kind=primary]:hover:not(:disabled){filter:brightness(1.08);color:#fff}
 .stars-body{display:flex;flex:1;min-height:0}
@@ -213,7 +248,25 @@ window.__ModuleLoader__.load({
 .stars-change{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-card-fill)}
 .stars-changedate{font-size:11px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;min-width:62px}
 .stars-dialog{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.32);z-index:50}
-.stars-dialogbox{width:340px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);padding:16px;display:flex;flex-direction:column;gap:10px}
+.stars-chipbtn{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
+.stars-chipbtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.stars-chipbtn[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
+.stars-sortth{cursor:pointer;user-select:none;white-space:nowrap}
+.stars-sortth:hover{color:var(--dsw-alias-label-primary)}
+.stars-sortmark{margin-left:4px;font-size:9px;color:var(--dsw-alias-brand-primary)}
+.stars-rowmeta{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.stars-rowact{font-size:11px;padding:1px 6px;border-radius:var(--dsw-radius-sm);border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;opacity:0;transition:opacity .12s ease}
+.stars-tr:hover .stars-rowact,.stars-row:hover .stars-rowact{opacity:1}
+.stars-rowact:hover{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-border-l1)}
+.stars-plansummary{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.6}
+.stars-planlist{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);padding:8px;background:var(--dsw-alias-bg-layer-1)}
+.stars-planrow{display:flex;gap:8px;justify-content:space-between;align-items:baseline}
+.stars-radio{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.stars-orphans{border-top:1px solid var(--dsw-alias-border-l1);padding:6px 16px;flex:none}
+.stars-orphantoggle{font-size:11px;color:var(--dsw-alias-label-tertiary);background:transparent;border:0;cursor:pointer;padding:0}
+.stars-orphantoggle:hover{color:var(--dsw-alias-label-primary)}
+.stars-orphanrow{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:3px 0;opacity:.75}
+.stars-dialogbox{max-height:80vh;overflow:auto;width:420px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);padding:16px;display:flex;flex-direction:column;gap:10px}
 .stars-dialogtitle{font-size:14px;font-weight:600}
 .stars-dialogactions{display:flex;justify-content:flex-end;gap:8px}
 .stars-cb{width:14px;height:14px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}
@@ -289,6 +342,67 @@ window.__ModuleLoader__.load({
       return `${Math.floor(days / 365)} 年前`
     }
 
+    /** 排序偏好记在 localStorage：刷新页面后保持用户选的那一列。 */
+    const SORT_KEY = 'dsh-stars.sort'
+    const SORT_FIELDS = new Set(['starred', 'pushedAt', 'stars', 'name'])
+    const DEFAULT_SORT = { key: 'starred', dir: 'desc' }
+
+    function readSort() {
+      try {
+        const [key, dir] = String(window.localStorage.getItem(SORT_KEY) ?? '').split(':')
+        if (SORT_FIELDS.has(key) && (dir === 'asc' || dir === 'desc')) return { key, dir }
+      } catch {
+        // 隐私模式 / 存储被禁：退回默认排序，不影响功能。
+      }
+      return DEFAULT_SORT
+    }
+
+    function writeSort(sort) {
+      try {
+        window.localStorage.setItem(SORT_KEY, `${sort.key}:${sort.dir}`)
+      } catch {
+        // 同上，写不进去也不影响本次会话。
+      }
+    }
+
+    function sortValue(repo, key) {
+      if (key === 'name') return repo.nameWithOwner ?? ''
+      if (key === 'stars') return repo.stars ?? 0
+      if (key === 'pushedAt') return repo.pushedAt ? Date.parse(repo.pushedAt) : null
+      return repo.starredAt ? Date.parse(repo.starredAt) : null
+    }
+
+    function sortRepos(list, sort) {
+      const dir = sort.dir === 'asc' ? 1 : -1
+      return [...list].sort((a, b) => {
+        const left = sortValue(a, sort.key)
+        const right = sortValue(b, sort.key)
+        // 没有值的行（比如从未推送过的仓库）永远排在最后，不受升降序影响。
+        if (left === null && right === null) return 0
+        if (left === null) return 1
+        if (right === null) return -1
+        if (sort.key === 'name') return String(left).localeCompare(String(right)) * dir
+        return (left - right) * dir
+      })
+    }
+
+    function failedTone(job) {
+      return job && (job.failed?.length ?? 0) > 0 ? 'error' : 'ok'
+    }
+
+    /** 作业结束的提示语：按 kind 说人话，失败时把第一条原因带上。 */
+    function jobNotice(job) {
+      if (!job) return '没有待办'
+      const failed = job.failed?.length ?? 0
+      if (job.kind === 'unstar') return failed > 0 ? `${failed} 个仓库没能取消 star：${job.failed[0]?.message ?? ''}` : `已取消 star ${job.applied} 个`
+      if (job.kind === 'deleteList') {
+        if (job.meta?.deleted) return `已删除分类「${job.meta.listName}」`
+        return `还有 ${failed} 个仓库没搬完，分类未删除`
+      }
+      if (failed > 0) return `${failed} 个仓库同步失败：${job.failed[0]?.message ?? ''}`
+      return job.applied > 0 ? `已同步 ${job.applied} 个仓库` : '没有待同步的改动'
+    }
+
     function StarIcon({ size = 16 }) {
       return h('svg', {
         width: size,
@@ -307,7 +421,9 @@ window.__ModuleLoader__.load({
       const [data, setData] = React.useState(null)
       const [tab, setTab] = React.useState('all')
       const [query, setQuery] = React.useState('')
-      const [only, setOnly] = React.useState('all')
+      const [chips, setChips] = React.useState(() => new Set())
+      const [lang, setLang] = React.useState('all')
+      const [sort, setSort] = React.useState(() => readSort())
       const [suggestFilter, setSuggestFilter] = React.useState(null)
       const [selected, setSelected] = React.useState(() => new Set())
       const [busy, setBusy] = React.useState(false)
@@ -317,7 +433,11 @@ window.__ModuleLoader__.load({
       const [newListName, setNewListName] = React.useState('')
       const [job, setJob] = React.useState(null)
       const [copied, setCopied] = React.useState(false)
+      const [preview, setPreview] = React.useState(null)
+      const [confirm, setConfirm] = React.useState(null)
+      const [orphansOpen, setOrphansOpen] = React.useState(false)
       const pollingRef = React.useRef(false)
+      const lastToggled = React.useRef(null)
       const t = React.useMemo(() => (key, ...args) => {
         const value = zh[key] ?? en[key]
         return typeof value === 'function' ? value(...args) : value ?? key
@@ -349,16 +469,11 @@ window.__ModuleLoader__.load({
           for (;;) {
             await new Promise((resolve) => setTimeout(resolve, 350))
             const value = await rpc({ action: 'progress' })
-            if (value?.syncJob) setJob(value.syncJob)
-            if (!value?.syncJob?.running) {
+            const running = value?.job ?? value?.syncJob
+            if (running) setJob(running)
+            if (!running?.running) {
               if (Array.isArray(value?.repos)) setData(value)
-              const failed = value?.syncJob?.failed?.length ?? 0
-              const applied = value?.syncJob?.applied ?? 0
-              if (failed > 0) {
-                setNotice({ tone: 'error', text: `${t('syncFailed', failed)}：${value.syncJob.failed[0]?.message ?? ''}` })
-              } else {
-                setNotice({ tone: 'ok', text: applied > 0 ? t('synced', applied) : t('nothingToSync') })
-              }
+              setNotice({ tone: failedTone(running), text: jobNotice(running) })
               break
             }
           }
@@ -383,6 +498,8 @@ window.__ModuleLoader__.load({
       const lists = data?.lists ?? []
       const repos = data?.repos ?? []
       const suggestions = data?.suggestions ?? {}
+      const currentList = lists.find((list) => list.id === tab) ?? null
+      const orphanNames = (data?.orphans ?? []).find((entry) => entry.id === tab)?.names ?? []
 
       const inTab = React.useMemo(() => {
         if (tab === 'all') return repos
@@ -391,19 +508,32 @@ window.__ModuleLoader__.load({
         return repos.filter((repo) => (repo.desired ?? []).includes(tab))
       }, [repos, tab])
 
+      const languages = React.useMemo(() => {
+        const found = new Set()
+        for (const repo of repos) if (repo.language) found.add(repo.language)
+        return [...found].sort((a, b) => a.localeCompare(b))
+      }, [repos])
+
       const shown = React.useMemo(() => {
         const needle = query.trim().toLowerCase()
-        return inTab.filter((repo) => {
+        const now = Date.now()
+        const filtered = inTab.filter((repo) => {
           if (suggestFilter && suggestions[repo.nameWithOwner]?.list !== suggestFilter) return false
-          if (only === 'archived' && !repo.archived) return false
-          if (only === 'stale' && !repo.stale) return false
-          if (only === 'pending' && !(repo.pending?.add?.length || repo.pending?.remove?.length)) return false
+          if (lang !== 'all' && repo.language !== lang) return false
+          if (chips.has('newRelease')) {
+            const at = repo.latestRelease?.publishedAt
+            if (!at || now - Date.parse(at) > 30 * 86_400_000) return false
+          }
+          if (chips.has('recent') && !(repo.pushedAt && now - Date.parse(repo.pushedAt) <= 30 * 86_400_000)) return false
+          if (chips.has('unsorted') && (repo.desired ?? []).length > 0) return false
+          if (chips.has('archived') && !repo.archived) return false
           if (!needle) return true
           return [repo.nameWithOwner, repo.description, ...(repo.topics ?? [])]
             .filter(Boolean)
             .some((field) => String(field).toLowerCase().includes(needle))
         })
-      }, [inTab, only, query, suggestFilter, suggestions])
+        return sortRepos(filtered, sort)
+      }, [chips, inTab, lang, query, sort, suggestFilter, suggestions])
 
       const unread = data?.unreadCount ?? 0
       const pendingCount = repos.filter((repo) => repo.pending?.add?.length || repo.pending?.remove?.length).length
@@ -425,17 +555,32 @@ window.__ModuleLoader__.load({
         return [...counts.entries()].sort((a, b) => b[1] - a[1])
       }, [repos, suggestions])
 
-      const toggle = (name) => {
+      // 选区只对「当前看到的这批」有意义：换分类、改搜索、改筛选就清空，避免误操作到看不见的行。
+      React.useEffect(() => {
+        setSelected(new Set())
+        lastToggled.current = null
+      }, [tab, query, chips, lang])
+
+      const toggle = (name, index, event) => {
+        const shift = Boolean(event?.shiftKey) && lastToggled.current !== null
         setSelected((prev) => {
           const next = new Set(prev)
+          if (shift) {
+            const from = Math.min(lastToggled.current, index)
+            const to = Math.max(lastToggled.current, index)
+            for (let i = from; i <= to; i += 1) next.add(shown[i].nameWithOwner)
+            return next
+          }
           if (next.has(name)) next.delete(name)
           else next.add(name)
           return next
         })
+        lastToggled.current = index
       }
 
+      const allShownSelected = shown.length > 0 && shown.every((repo) => selected.has(repo.nameWithOwner))
       const toggleAll = () => {
-        setSelected((prev) => (prev.size === shown.length ? new Set() : new Set(shown.map((repo) => repo.nameWithOwner))))
+        setSelected(allShownSelected ? new Set() : new Set(shown.map((repo) => repo.nameWithOwner)))
       }
 
       const stage = async (fullNames, { add = [], remove = [] }) => {
@@ -463,14 +608,64 @@ window.__ModuleLoader__.load({
         setNotice({ tone: 'ok', text: t('accepted', value.staged ?? 0, value.created ?? 0) })
       }
 
-      const doSync = async () => {
-        const value = await run({ action: 'sync' })
-        if (value?.syncJob) setJob(value.syncJob)
-        if (value?.syncJob?.running) {
-          await followSync()
-        } else if (value?.syncJob) {
+      const startAndFollow = async (value) => {
+        if (value?.job) setJob(value.job)
+        if (value?.job?.running) await followSync()
+        else if (value?.job) setNotice({ tone: failedTone(value.job), text: jobNotice(value.job) })
+      }
+
+      // 同步永远先看预览：写回是不可见的批量操作，先让用户看见「要写多少、写到哪」。
+      const openPreview = async () => {
+        const value = await run({ action: 'plan' })
+        if (!value?.plan?.length) {
           setNotice({ tone: 'ok', text: t('nothingToSync') })
+          return
         }
+        setPreview(value)
+      }
+
+      const confirmSync = async () => {
+        const expected = preview?.plan?.length ?? 0
+        setPreview(null)
+        try {
+          await startAndFollow(await run({ action: 'sync', expectCount: expected }))
+        } catch (cause) {
+          if (cause?.code === 'conflict') setNotice({ tone: 'error', text: cause.message })
+          else throw cause
+        }
+      }
+
+      const askUnstar = (names) => {
+        if (!names.length) return
+        setConfirm({ type: 'unstar', names })
+      }
+
+      const doUnstar = async () => {
+        const names = confirm?.names ?? []
+        setConfirm(null)
+        const value = await run({ action: 'unstar', fullNames: names })
+        setSelected(new Set())
+        await startAndFollow(value)
+      }
+
+      const askDeleteList = (list) => setConfirm({ type: 'deleteList', list, mode: 'unsorted', targetListId: '' })
+
+      const doDeleteList = async () => {
+        const dialog = confirm
+        setConfirm(null)
+        const value = await run({
+          action: 'deleteList',
+          listId: dialog.list.id,
+          mode: dialog.mode,
+          targetListId: dialog.mode === 'move' ? dialog.targetListId : undefined,
+        })
+        if (tab === dialog.list.id) setTab('all')
+        await startAndFollow(value)
+      }
+
+      const removeOrphan = async (listId, fullName) => {
+        await run({ action: 'removeOrphan', listId, fullName })
+        setNotice({ tone: 'ok', text: `已从分类移出 ${fullName}` })
       }
 
       const createList = async () => {
@@ -508,7 +703,7 @@ window.__ModuleLoader__.load({
           className: 'stars-btn',
           disabled: busy || syncing || pendingCount === 0 || authBlocked || scopeMissing,
           title: authBlocked || scopeMissing ? t('syncBlocked') : undefined,
-          onClick: () => doSync().catch(() => {}),
+          onClick: () => openPreview().catch(() => {}),
         }, syncing
           ? `${t('syncing')} ${job.done}/${job.total}`
           : pendingCount > 0 ? `${t('sync')} (${pendingCount})` : t('sync')),
@@ -542,7 +737,7 @@ window.__ModuleLoader__.load({
 
       const progressStrip = syncing
         ? h('div', { className: 'stars-progress', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': percent },
-          h('span', { className: 'stars-progresslabel' }, t('syncProgress')),
+          h('span', { className: 'stars-progresslabel' }, job.kind === 'unstar' ? t('unstarProgress') : job.kind === 'deleteList' ? t('deleteListProgress') : t('syncProgress')),
           h('div', { className: 'stars-progresstrack' },
             h('div', { className: 'stars-progressfill', 'data-done': String(job.done >= job.total), style: { width: `${Math.max(percent, 2)}%` } })),
           h('span', { className: 'stars-progresspct' }, `${percent}%`),
@@ -568,6 +763,34 @@ window.__ModuleLoader__.load({
           onClick: () => { setCreating(true); setNewListName('') },
         }, h('span', { style: { color: 'var(--dsw-alias-brand-primary)' } }, `+ ${t('createList')}`)))
 
+      const chipButton = (key, label) => h('button', {
+        key,
+        className: 'stars-chipbtn',
+        'data-active': String(chips.has(key)),
+        onClick: () => setChips((prev) => {
+          const next = new Set(prev)
+          if (next.has(key)) next.delete(key)
+          else next.add(key)
+          return next
+        }),
+      }, label)
+
+      const sortSelect = h('select', {
+        className: 'stars-select',
+        title: t('sortBy'),
+        value: `${sort.key}:${sort.dir}`,
+        onChange: (event) => {
+          const [key, dir] = event.target.value.split(':')
+          const next = { key, dir }
+          setSort(next)
+          writeSort(next)
+        },
+      },
+      h('option', { value: 'starred:desc' }, t('sortStarred')),
+      h('option', { value: 'pushedAt:desc' }, t('sortPushed')),
+      h('option', { value: 'stars:desc' }, t('sortStars')),
+      h('option', { value: 'name:asc' }, t('sortName')))
+
       const toolbar = tab === 'changes' ? null : h('div', { className: 'stars-toolbar' },
         h('input', {
           className: 'stars-input',
@@ -575,11 +798,14 @@ window.__ModuleLoader__.load({
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
-        h('select', { className: 'stars-select', value: only, onChange: (event) => setOnly(event.target.value) },
-          h('option', { value: 'all' }, t('onlyAll')),
-          h('option', { value: 'pending' }, t('onlyPending')),
-          h('option', { value: 'stale' }, t('onlyStale')),
-          h('option', { value: 'archived' }, t('onlyArchived'))),
+        chipButton('newRelease', t('chipNewRelease')),
+        chipButton('recent', t('chipRecent')),
+        chipButton('unsorted', t('chipUnsorted')),
+        chipButton('archived', t('chipArchived')),
+        h('select', { className: 'stars-select', value: lang, onChange: (event) => setLang(event.target.value) },
+          h('option', { value: 'all' }, t('languageAll')),
+          ...languages.map((name) => h('option', { key: name, value: name }, name))),
+        sortSelect,
         selected.size > 0
           ? h(React.Fragment, null,
             h('span', { className: 'stars-selinfo' }, t('selected', selected.size)),
@@ -596,7 +822,12 @@ window.__ModuleLoader__.load({
             ...lists.map((list) => h('option', { key: list.id, value: list.id }, list.name))),
             tab !== 'all' && tab !== 'unsorted'
               ? h('button', { className: 'stars-btn', onClick: () => stage([...selected], { remove: [tab] }).catch(() => {}) }, t('removeFrom'))
-              : null)
+              : null,
+            h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => askUnstar([...selected]) }, `取消 star（${selected.size}）`),
+            h('button', { className: 'stars-btn', onClick: () => setSelected(new Set()) }, t('clearSelection')))
+          : null,
+        currentList
+          ? h('button', { className: 'stars-btn', style: { marginLeft: 'auto' }, disabled: busy || syncing, onClick: () => askDeleteList(currentList) }, t('deleteList'))
           : null)
 
       const distStrip = (tab === 'all' || tab === 'unsorted') && distribution.length > 0
@@ -629,13 +860,13 @@ window.__ModuleLoader__.load({
               : h('span', { className: 'stars-dim' }, change.nameWithOwner ?? ''),
             h('span', { className: 'stars-dim' }, change.text))))
 
-      const row = (repo) => {
+      const row = (repo, index) => {
         const suggested = suggestions[repo.nameWithOwner]
         const pending = Boolean(repo.pending?.add?.length || repo.pending?.remove?.length)
         const chips = (repo.desired ?? []).map((id) => lists.find((list) => list.id === id)?.name).filter(Boolean)
         return h('tr', { className: 'stars-row', key: repo.nameWithOwner },
           h('td', { style: { width: 28 } },
-            h('input', { className: 'stars-cb', type: 'checkbox', checked: selected.has(repo.nameWithOwner), onChange: () => toggle(repo.nameWithOwner) })),
+            h('input', { className: 'stars-cb', type: 'checkbox', checked: selected.has(repo.nameWithOwner), onChange: (event) => toggle(repo.nameWithOwner, index, event) })),
           h('td', null,
             h('div', { className: 'stars-repo' },
               h('a', { className: 'stars-repolink', href: repo.url, target: '_blank', rel: 'noreferrer' }, repo.nameWithOwner),
@@ -661,8 +892,26 @@ window.__ModuleLoader__.load({
                 ? h('span', { className: 'stars-dim' }, t('unsorted'))
                 : null)),
           h('td', null, h('span', { className: 'stars-num' }, `★ ${repo.stars ?? 0}`)),
-          h('td', null, h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt))))
+          h('td', null,
+            h('div', { className: 'stars-rowmeta' },
+              h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt)),
+              h('button', {
+                className: 'stars-rowact',
+                disabled: busy || syncing,
+                onClick: () => askUnstar([repo.nameWithOwner]),
+              }, '取消 star'))))
       }
+
+      const sortTh = (key, label) => h('th', {
+        className: 'stars-sortth',
+        onClick: () => {
+          const next = sort.key === key
+            ? { key, dir: sort.dir === 'desc' ? 'asc' : 'desc' }
+            : { key: key === 'name' ? 'name' : key, dir: key === 'name' ? 'asc' : 'desc' }
+          setSort(next)
+          writeSort(next)
+        },
+      }, h('span', null, label), sort.key === key ? h('span', { className: 'stars-sortmark' }, sort.dir === 'desc' ? '▼' : '▲') : null)
 
       const table = h('div', { className: 'stars-scroll' },
         shown.length === 0
@@ -672,21 +921,99 @@ window.__ModuleLoader__.load({
               h('th', { style: { width: 28 } }, h('input', {
                 className: 'stars-cb',
                 type: 'checkbox',
-                title: t('selectAll'),
-                checked: shown.length > 0 && selected.size === shown.length,
+                title: allShownSelected ? t('clearSelection') : t('selectAllShown', shown.length),
+                checked: allShownSelected,
                 onChange: toggleAll,
               })),
-              h('th', null, t('name')),
+              sortTh('name', t('name')),
               h('th', null, t('type')),
-              h('th', null, t('stars')),
-              h('th', null, t('updated')))),
-            h('tbody', null, ...shown.map(row))))
+              sortTh('stars', t('stars')),
+              sortTh('pushedAt', t('updated')),
+              h('th', { style: { width: 92 } }, ''))),
+            h('tbody', null, ...shown.map((repo, index) => row(repo, index)))))
 
       const foot = h('div', { className: 'stars-foot' },
         h('span', null, `${repos.length} 个 star · ${lists.length} 个列表 · ${unsortedCount} 个未归类`),
         data.lastViewedAt ? h('span', null, `${t('lastViewed')} ${relative(data.lastViewedAt)}`) : null,
         data.viewer ? h('a', { className: 'stars-repolink', style: { fontSize: 11, marginLeft: 'auto' }, href: `https://github.com/stars/${data.viewer}/lists`, target: '_blank', rel: 'noreferrer' }, t('openOnGithub')) : null,
         data.error ? h('span', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, `${data.error.code}: ${data.error.message}`) : null)
+
+        const closeDialog = () => { setCreating(false); setPreview(null); setConfirm(null) }
+
+      const dialogBody = creating
+        ? h(React.Fragment, null,
+          h('div', { className: 'stars-dialogtitle' }, t('createList')),
+          h('input', {
+            className: 'stars-input',
+            autoFocus: true,
+            placeholder: t('listName'),
+            value: newListName,
+            onChange: (event) => setNewListName(event.target.value),
+            onKeyDown: (event) => { if (event.key === 'Enter') createList().catch(() => {}) },
+          }),
+          h('div', { className: 'stars-dialogactions' },
+            h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+            h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: !newListName.trim() || busy, onClick: () => createList().catch(() => {}) }, t('create'))))
+        : preview
+          ? h(React.Fragment, null,
+            h('div', { className: 'stars-dialogtitle' }, t('planTitle', preview.plan.length)),
+            h('div', { className: 'stars-plansummary' },
+              ...(preview.summary?.added ?? []).map((entry) => h('span', { className: 'stars-chip', key: entry.name }, `${entry.name} ← ${entry.count} 个`)),
+              preview.summary?.removed > 0 ? h('span', { className: 'stars-chip', 'data-tone': 'warn' }, t('planRemoved', preview.summary.removed)) : null),
+            h('div', { className: 'stars-planlist' },
+              ...preview.plan.slice(0, 50).map((entry) => h('div', { className: 'stars-planrow', key: entry.nameWithOwner },
+                h('span', { className: 'stars-repolink' }, entry.nameWithOwner),
+                h('span', { className: 'stars-dim' }, `${(entry.from ?? []).map((id) => lists.find((list) => list.id === id)?.name ?? id).join('、') || '未归类'} → ${(entry.to ?? []).map((id) => lists.find((list) => list.id === id)?.name ?? id).join('、') || '未归类'}`))),
+              preview.plan.length > 50 ? h('div', { className: 'stars-dim' }, t('planMore', preview.plan.length - 50)) : null),
+            h('div', { className: 'stars-dialogactions' },
+              h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+              h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: busy, onClick: () => confirmSync().catch(() => {}) }, t('writeBack', preview.plan.length))))
+          : confirm?.type === 'unstar'
+            ? h(React.Fragment, null,
+              h('div', { className: 'stars-dialogtitle' }, t('unstarTitle', confirm.names.length)),
+              h('div', { className: 'stars-plansummary' }, t('unstarHint')),
+              h('div', { className: 'stars-planlist' },
+                ...confirm.names.slice(0, 5).map((name) => h('div', { className: 'stars-planrow', key: name }, h('span', { className: 'stars-repolink' }, name))),
+                confirm.names.length > 5 ? h('div', { className: 'stars-dim' }, t('unstarRest', confirm.names.length - 5)) : null),
+              h('div', { className: 'stars-dialogactions' },
+                h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+                h('button', { className: 'stars-btn', 'data-kind': 'danger', disabled: busy, onClick: () => doUnstar().catch(() => {}) }, t('unstarConfirm'))))
+            : confirm?.type === 'deleteList'
+              ? h(React.Fragment, null,
+                h('div', { className: 'stars-dialogtitle' }, t('deleteTitle', confirm.list.name)),
+                confirm.list.count > 0
+                  ? h(React.Fragment, null,
+                    h('div', { className: 'stars-plansummary' }, t('deleteBusyHint', confirm.list.count)),
+                    h('label', { className: 'stars-radio' },
+                      h('input', { type: 'radio', checked: confirm.mode === 'unsorted', onChange: () => setConfirm({ ...confirm, mode: 'unsorted' }) }),
+                      t('deleteToUnsorted')),
+                    h('label', { className: 'stars-radio' },
+                      h('input', { type: 'radio', checked: confirm.mode === 'move', onChange: () => setConfirm({ ...confirm, mode: 'move' }) }),
+                      t('deleteToMove')),
+                    confirm.mode === 'move'
+                      ? h('select', {
+                        className: 'stars-select',
+                        value: confirm.targetListId,
+                        onChange: (event) => setConfirm({ ...confirm, targetListId: event.target.value }),
+                      },
+                      h('option', { value: '' }, t('deleteTarget')),
+                      ...lists.filter((list) => list.id !== confirm.list.id).map((list) => h('option', { key: list.id, value: list.id }, list.name)))
+                      : null)
+                  : h('div', { className: 'stars-plansummary' }, t('deleteEmptyHint')),
+                h('div', { className: 'stars-dialogactions' },
+                  h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
+                  h('button', {
+                    className: 'stars-btn',
+                    'data-kind': 'danger',
+                    disabled: busy || (confirm.mode === 'move' && !confirm.targetListId),
+                    onClick: () => doDeleteList().catch(() => {}),
+                  }, t('deleteConfirm'))))
+              : null
+
+      const dialog = dialogBody
+        ? h('div', { className: 'stars-dialog', onClick: closeDialog },
+          h('div', { className: 'stars-dialogbox', onClick: (event) => event.stopPropagation() }, dialogBody))
+        : null
 
       return h('div', { className: 'stars-root' },
         head,
@@ -697,23 +1024,22 @@ window.__ModuleLoader__.load({
           h('button', { className: 'stars-btn', style: { marginLeft: 'auto', height: 22 }, onClick: () => { setNotice(null); setError(null) } }, '×')) : null,
         h('div', { className: 'stars-body' },
           rail,
-          h('div', { className: 'stars-main' }, toolbar, distStrip, tab === 'changes' ? changeView : table)),
+          h('div', { className: 'stars-main' },
+            toolbar,
+            distStrip,
+            tab === 'changes' ? changeView : table,
+            currentList && orphanNames.length > 0
+              ? h('div', { className: 'stars-orphans' },
+                h('button', { className: 'stars-orphantoggle', onClick: () => setOrphansOpen((prev) => !prev) },
+                  `${orphansOpen ? '▾' : '▸'} ${orphanNames.length} 个已不在 star 里的成员`),
+                orphansOpen
+                  ? h('div', null, ...orphanNames.map((name) => h('div', { className: 'stars-orphanrow', key: name },
+                    h('span', { className: 'stars-dim' }, name),
+                    h('button', { className: 'stars-btn', style: { height: 22 }, disabled: busy || syncing, onClick: () => removeOrphan(currentList.id, name).catch(() => {}) }, '移出'))))
+                  : null)
+              : null)),
         foot,
-        creating ? h('div', { className: 'stars-dialog', onClick: () => setCreating(false) },
-          h('div', { className: 'stars-dialogbox', onClick: (event) => event.stopPropagation() },
-            h('div', { className: 'stars-dialogtitle' }, t('createList')),
-            h('input', {
-              className: 'stars-input',
-              autoFocus: true,
-              placeholder: t('listName'),
-              value: newListName,
-              onChange: (event) => setNewListName(event.target.value),
-              onKeyDown: (event) => { if (event.key === 'Enter') createList().catch(() => {}) },
-            }),
-            h('div', { className: 'stars-dialogactions' },
-              h('button', { className: 'stars-btn', onClick: () => setCreating(false) }, t('cancel')),
-              h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: !newListName.trim() || busy, onClick: () => createList().catch(() => {}) }, t('create')))))
-          : null)
+        dialog)
     }
 
     function SidebarIcon({ size, active }) {

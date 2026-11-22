@@ -362,14 +362,20 @@ export function apply(ctx, config = {}) {
         const listId = String(payload.listId ?? '')
         const mode = payload.mode === 'move' ? 'move' : 'unsorted'
         const targetListId = mode === 'move' ? String(payload.targetListId ?? '') : ''
-        const list = store.state.lists.find((item) => item.id === listId)
-        if (!list) throw new GitHubError('invalid', '分类不存在，刷新一次再试')
+        const cached = store.state.lists.find((item) => item.id === listId)
+        if (!cached) throw new GitHubError('invalid', '分类不存在，刷新一次再试')
         if (mode === 'move' && (!targetListId || targetListId === listId)) {
           throw new GitHubError('invalid', '要移入的目标分类不对')
         }
-        const targets = (list.repos ?? []).map((name) => {
+        // 成员的真相在 GitHub：本地快照可能落后（在网页上往分类里加过仓库），
+        // 所以删分类前先取一次远端成员，别按旧列表「空分类」直接删掉、把成员变成孤儿。
+        const remote = (await github.fetchLists()).lists.find((item) => item.id === listId) ?? null
+        const list = remote ?? cached
+        const members = remote ? remote.repos : cached.repos ?? []
+        const remoteIds = remote?.itemIds ?? {}
+        const targets = members.map((name) => {
           const repo = store.state.repos[name]
-          const itemId = list.itemIds?.[name] ?? repo?.id
+          const itemId = remoteIds[name] ?? cached.itemIds?.[name] ?? repo?.id
           if (!itemId) throw new GitHubError('invalid', `${name} 缺少 node id，刷新一次再试`)
           const current = new Set([
             ...(repo?.lists ?? []),

@@ -325,8 +325,6 @@ test('view：孤儿成员 = 分类成员里不在 star 快照里的仓库', asyn
   )
 
   const view = store.view()
-  assert.deepEqual(view.orphans, [
-    { id: 'L1', names: ['a/orphan'] },
-    { id: 'L2', names: [] },
-  ])
+  // 只报有孤儿的分类：空分类不占位，客户端不用再过滤。
+  assert.deepEqual(view.orphans, [{ id: 'L1', names: ['a/orphan'] }])
 })

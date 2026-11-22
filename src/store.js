@@ -377,10 +377,9 @@ export class Store {
   /** 拼给客户端的视图：仓库数组 + 统计 + 未读变更。 */
   view() {
     // 孤儿成员 = 挂在分类里、但已经不在 star 列表里（GitHub 允许这种状态）。
-    const orphans = this.#state.lists.map((list) => ({
-      id: list.id,
-      names: (list.repos ?? []).filter((name) => !this.#state.repos[name]),
-    }))
+    const orphans = this.#state.lists
+      .map((list) => ({ id: list.id, names: (list.repos ?? []).filter((name) => !this.#state.repos[name]) }))
+      .filter((entry) => entry.names.length > 0)
     const lists = this.#state.lists.map((list) => ({
       ...list,
       repos: undefined,
