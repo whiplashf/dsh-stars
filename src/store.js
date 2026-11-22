@@ -6,6 +6,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 export const MAX_CHANGES = 400
+/** star 数变化小于该绝对值时不登记为变更。 */
+export const STAR_DELTA_MIN = 10
 
 export function blankState() {
   return {
@@ -97,6 +99,15 @@ export class Store {
       repo.pending = normalizePending(repo.pending)
       if (!Array.isArray(repo.lists)) repo.lists = []
     }
+    // 旧版本把每次 +1 star 都记成变更；读盘时清掉这些噪声，只留阈值以上的涨跌。
+    const seen = new Set()
+    this.#state.changes = this.#state.changes.filter((change) => {
+      if (change?.kind === 'stars' && Math.abs(Number(change.delta) || 0) < STAR_DELTA_MIN) return false
+      const key = `${change?.kind}:${change?.nameWithOwner}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     return this.#state
   }
 
@@ -160,8 +171,12 @@ export class Store {
         changes.push(changeEntry('commits', merged, `有新提交（${merged.pushedAt.slice(0, 10)}）`))
       }
       if (merged.archived && !old.archived) changes.push(changeEntry('archived', merged, '仓库已归档'))
+      // star 数每天都会小幅波动，只有涨跌超过阈值才值得提示，避免淹没真正的代码变更。
       const delta = (merged.stars ?? 0) - (old.stars ?? 0)
-      if (delta !== 0) changes.push(changeEntry('stars', merged, `star ${delta > 0 ? '+' : ''}${delta}`, { delta }))
+      const starThreshold = Math.max(STAR_DELTA_MIN, Math.round((old.stars ?? 0) * 0.1))
+      if (Math.abs(delta) >= starThreshold) {
+        changes.push(changeEntry('stars', merged, `star ${delta > 0 ? '+' : ''}${delta}`, { delta }))
+      }
     }
 
     for (const name of Object.keys(prev)) {
@@ -173,7 +188,12 @@ export class Store {
     this.#state.lists = fetched.lists ?? []
     this.#state.viewer = fetched.viewer ?? this.#state.viewer
     this.#state.snapshotAt = new Date().toISOString()
-    this.#state.changes = [...changes, ...this.#state.changes].slice(0, MAX_CHANGES)
+    // 同一个仓库的同一种变更只留最新一条：反复刷新时不会堆出一串重复的「有新提交」。
+    const fresh = new Set(changes.map((change) => `${change.kind}:${change.nameWithOwner}`))
+    this.#state.changes = [
+      ...changes,
+      ...this.#state.changes.filter((change) => !fresh.has(`${change.kind}:${change.nameWithOwner}`)),
+    ].slice(0, MAX_CHANGES)
     return changes
   }
 

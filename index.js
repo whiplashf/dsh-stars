@@ -128,6 +128,40 @@ export function apply(ctx, config = {}) {
         await store.save()
         return { touched, ...view() }
       }
+      case 'acceptSuggestions': {
+        // 只做暂存：把每条建议落到对应列表的 pending.add 上，写回 GitHub 仍要用户点一次「同步」。
+        await store.load()
+        const suggestions = suggestAll(store.view().repos, rules)
+        const byName = new Map(store.state.lists.map((list) => [list.name, list.id]))
+        const groups = new Map()
+        let created = 0
+        let kept = 0
+        for (const [fullName, suggestion] of Object.entries(suggestions)) {
+          const repo = store.state.repos[fullName]
+          if (!repo) continue
+          // 已经归过类（或已在待同步队列里）的仓库不强行塞第二个分类。
+          if ((repo.lists ?? []).length > 0 || (repo.pending?.add ?? []).length > 0) {
+            kept += 1
+            continue
+          }
+          let listId = byName.get(suggestion.list)
+          if (!listId) {
+            const list = await github.createList(suggestion.list, 'dsh-stars 自动创建')
+            store.setList(list)
+            byName.set(list.name, list.id)
+            listId = list.id
+            created += 1
+          }
+          if (!groups.has(listId)) groups.set(listId, [])
+          groups.get(listId).push(fullName)
+        }
+        let staged = 0
+        for (const [listId, names] of groups) {
+          staged += store.stage(names, { add: [listId], remove: [] })
+        }
+        await store.save()
+        return { created, staged, kept, ...view() }
+      }
       case 'sync': {
         const result = await sync({ dryRun: Boolean(payload.dryRun) })
         return { ...result, ...view() }

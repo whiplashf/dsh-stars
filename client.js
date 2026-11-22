@@ -54,6 +54,8 @@ window.__ModuleLoader__.load({
       create: '创建',
       acceptSuggestion: (name) => `建议：${name}`,
       useSuggestion: '采纳建议',
+      acceptAll: (n) => `采纳全部建议 (${n})`,
+      accepted: (n, c) => (c > 0 ? `已暂存 ${n} 个仓库的分类建议，新建了 ${c} 个列表，点「同步到 GitHub」写回` : `已暂存 ${n} 个仓库的分类建议，点「同步到 GitHub」写回`),
       archived: '已归档',
       stale: '一年未更新',
       pendingChip: '待同步',
@@ -330,6 +332,11 @@ window.__ModuleLoader__.load({
       const pendingCount = repos.filter((repo) => repo.pending?.add?.length || repo.pending?.remove?.length).length
       const unsortedCount = repos.filter((repo) => (repo.desired ?? []).length === 0).length
 
+      const acceptCount = React.useMemo(
+        () => repos.filter((repo) => (repo.desired ?? []).length === 0 && suggestions[repo.nameWithOwner]?.list).length,
+        [repos, suggestions],
+      )
+
       const distribution = React.useMemo(() => {
         const counts = new Map()
         for (const repo of repos) {
@@ -371,6 +378,12 @@ window.__ModuleLoader__.load({
         }
         if (!list) return
         await stage([repo.nameWithOwner], { add: [list.id] })
+      }
+
+      const acceptAll = async () => {
+        const value = await run({ action: 'acceptSuggestions' })
+        setSelected(new Set())
+        setNotice({ tone: 'ok', text: t('accepted', value.staged ?? 0, value.created ?? 0) })
       }
 
       const doSync = async () => {
@@ -466,7 +479,15 @@ window.__ModuleLoader__.load({
             className: 'stars-distchip',
             'data-active': String(suggestFilter === name),
             onClick: () => setSuggestFilter((prev) => (prev === name ? null : name)),
-          }, name, h('span', { className: 'stars-distcount' }, String(count)))))
+          }, name, h('span', { className: 'stars-distcount' }, String(count)))),
+          acceptCount > 0
+            ? h('button', {
+              className: 'stars-btn',
+              style: { marginLeft: 'auto', height: 22 },
+              disabled: busy,
+              onClick: () => acceptAll().catch(() => {}),
+            }, t('acceptAll', acceptCount))
+            : null)
         : null
 
       const changeView = h('div', { className: 'stars-changes' },
@@ -494,7 +515,7 @@ window.__ModuleLoader__.load({
               (repo.topics ?? []).length
                 ? h('div', { className: 'stars-topics' }, ...repo.topics.slice(0, 6).map((topic) => h('span', { className: 'stars-topic', key: topic }, topic)))
                 : null,
-              suggested
+              suggested && (repo.desired ?? []).length === 0
                 ? h('div', { className: 'stars-suggest' },
                   h('button', {
                     className: 'stars-suggestbtn',
