@@ -14,6 +14,8 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 分类结果的**真源是 GitHub Lists**：面板里的归类先暂存在本地，点「同步到 GitHub」才用 GraphQL `updateUserListsForItem` 写回，所以在 GitHub 网页和手机上也看得到同样的分组。
 
+![面板](docs/preview.png)
+
 ## 安装
 
 插件放在本仓库，安装到 DSH profile：

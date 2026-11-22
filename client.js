@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
       nothingToSync: '没有待同步的改动',
       all: '全部',
       unsorted: '未归类',
+      suggestHint: '建议分类',
       changes: '变更',
       lists: '列表',
       search: '搜索仓库名、描述或 topic',
@@ -87,6 +88,7 @@ window.__ModuleLoader__.load({
       nothingToSync: 'Nothing to sync',
       all: 'All',
       unsorted: 'Unsorted',
+      suggestHint: 'By suggestion',
       changes: 'Changes',
       lists: 'Lists',
       search: 'Search name, description or topic',
@@ -458,7 +460,7 @@ window.__ModuleLoader__.load({
 
       const distStrip = (tab === 'all' || tab === 'unsorted') && distribution.length > 0
         ? h('div', { className: 'stars-dist' },
-          h('span', { className: 'stars-distlabel' }, `${t('unsorted')} · ${t('type')}`),
+          h('span', { className: 'stars-distlabel' }, `${t('suggestHint')} · ${t('unsorted')} ${unsortedCount}`),
           ...distribution.map(([name, count]) => h('button', {
             key: name,
             className: 'stars-distchip',
