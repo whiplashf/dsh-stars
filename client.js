@@ -51,7 +51,9 @@ window.__ModuleLoader__.load({
       all: '全部',
       unsorted: '未归类',
       suggestHint: '建议分类',
-      changes: '变更',
+      changes: '变更记录',
+      changesSummary: (total, unread) => unread > 0 ? `共 ${total} 条记录 · ${unread} 条未读` : `共 ${total} 条记录`,
+      changesHint: '新 star、新版本、新提交、归档、star 涨跌、取消 star；「标记已读」只清未读数，不动 GitHub',
       lists: '列表',
       search: '搜索仓库名、描述或 topic',
       only: '筛选',
@@ -116,7 +118,7 @@ window.__ModuleLoader__.load({
       snapshotAt: '快照',
       never: '尚未同步',
       lastViewed: '上次查看',
-      unread: (n) => `${n} 条未读变更`,
+      unread: (n) => `${n} 条未读`,
       noViewer: '无法读取 GitHub 账号',
       firstSeen: '收藏于',
       openOnGithub: '在 GitHub 打开列表',
@@ -181,7 +183,9 @@ window.__ModuleLoader__.load({
       all: 'All',
       unsorted: 'Unsorted',
       suggestHint: 'By suggestion',
-      changes: 'Changes',
+      changes: 'Change log',
+      changesSummary: (total, unread) => unread > 0 ? `${total} records · ${unread} unread` : `${total} records`,
+      changesHint: 'New stars, releases, commits, archived repos, star moves and unstarred repos. Mark read only clears the counter.',
       lists: 'Lists',
       search: 'Search name, description or topic',
       only: 'Filter',
@@ -213,7 +217,7 @@ window.__ModuleLoader__.load({
       snapshotAt: 'Snapshot',
       never: 'Never refreshed',
       lastViewed: 'Last seen',
-      unread: (n) => `${n} unread changes`,
+      unread: (n) => `${n} unread`,
       noViewer: 'GitHub account unavailable',
       firstSeen: 'Starred',
       openOnGithub: 'Open lists on GitHub',
@@ -298,7 +302,7 @@ window.__ModuleLoader__.load({
 .stars-plansummary{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.6}
 .stars-planlist{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);padding:8px;background:var(--dsw-alias-bg-layer-1)}
 .stars-planrow{display:flex;gap:8px;justify-content:space-between;align-items:baseline;flex-wrap:wrap}
-.stars-planrow>.stars-repolist{flex-basis:100%;color:var(--dsw-alias-fg-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stars-planrow>.stars-repolist{flex-basis:100%;color:var(--dsw-alias-label-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stars-radio{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .stars-orphans{border-top:1px solid var(--dsw-alias-border-l1);padding:6px 16px;flex:none}
 .stars-orphantoggle{font-size:11px;color:var(--dsw-alias-label-tertiary);background:transparent;border:0;cursor:pointer;padding:0}
@@ -315,7 +319,7 @@ window.__ModuleLoader__.load({
 .stars-distchip[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
 .stars-distcount{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
 .stars-foot{padding:6px 16px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-caption);display:flex;gap:12px;flex:none;flex-wrap:wrap}
-.stars-auth{margin:12px 16px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-warning-primary);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:8px;font-size:12px}
+.stars-auth{margin:12px 16px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-warn-primary);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:8px;font-size:12px}
 .stars-authtitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .stars-authbody{color:var(--dsw-alias-label-secondary);line-height:1.6}
 .stars-authcmd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -329,6 +333,36 @@ window.__ModuleLoader__.load({
 .stars-progressmeta{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .stars-progresscurrent{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;margin-left:auto}
 .stars-progresspct{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
+/* 分类色板：固定色值，亮/暗主题都能看清；同一个分类名永远拿同一个颜色。 */
+.stars-root{--stars-c1:#5b8def;--stars-c2:#2f9e6a;--stars-c3:#d1932f;--stars-c4:#a76bd6;--stars-c5:#cf5c74;--stars-c6:#3aa0b5}
+.stars-dot{width:7px;height:7px;border-radius:50%;background:var(--stars-c,var(--dsw-alias-label-caption));flex:none;display:inline-block}
+.stars-headicon{color:var(--dsw-alias-state-warn-primary);flex:none}
+.stars-title{font-size:16px}
+.stars-metasep{color:var(--dsw-alias-label-caption);margin:0 2px}
+.stars-unreadchip{border:0;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);margin-left:6px}
+.stars-unreadchip:hover{background:color-mix(in srgb,var(--dsw-alias-link) 22%,transparent)}
+.stars-railicon{width:14px;flex:none;text-align:center;font-size:11px;color:var(--dsw-alias-label-caption)}
+.stars-railitem[data-active=true] .stars-railicon{color:var(--dsw-alias-link)}
+.stars-railcount[data-tone=unread]{background:var(--dsw-alias-link);color:var(--dsw-alias-bg-layer-1);border-radius:999px;padding:0 6px;font-weight:600}
+.stars-repolink{color:var(--dsw-alias-link)}
+.stars-repolink:hover{color:var(--dsw-alias-link);text-decoration:underline}
+.stars-row[data-selected=true] td{background:color-mix(in srgb,var(--dsw-alias-link) 7%,transparent)}
+.stars-num{color:var(--dsw-alias-label-secondary)}
+.stars-stars{color:var(--dsw-alias-state-warn-primary);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stars-chip[data-color]{background:color-mix(in srgb,var(--stars-c) 15%,transparent);color:var(--dsw-alias-label-secondary)}
+.stars-chip[data-color] .stars-dot{background:var(--stars-c)}
+.stars-chip[data-tone=brand]{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
+.stars-lang{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.stars-langdot{width:8px;height:8px;border-radius:50%;background:var(--stars-c6);display:inline-block}
+.stars-change[data-kind=new] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
+.stars-change[data-kind=release] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
+.stars-change[data-kind=commits] .stars-chip{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.stars-change[data-kind=stars] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
+.stars-change[data-kind=archived] .stars-chip,.stars-change[data-kind=gone] .stars-chip,.stars-change[data-kind=unstarred] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
+.stars-change:hover{background:var(--dsw-alias-card-fill-hover)}
+.stars-changesum{margin:0 0 6px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.stars-emptyhint{display:flex;flex-direction:column;align-items:center;gap:6px;height:220px;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;padding:0 24px;line-height:1.7}
+.stars-progressfill{background:var(--dsw-alias-link)}
 `
 
     function ensureCss() {
@@ -401,6 +435,16 @@ window.__ModuleLoader__.load({
       } catch {
         // 同上，写不进去也不影响本次会话。
       }
+    }
+
+    /** 名字 → 一个稳定颜色，同一个分类/语言每次都用同一种，扫视时能靠颜色分辨。 */
+    const PALETTE = ['var(--stars-c1)', 'var(--stars-c2)', 'var(--stars-c3)', 'var(--stars-c4)', 'var(--stars-c5)', 'var(--stars-c6)']
+
+    function colorOf(name) {
+      const text = String(name ?? '')
+      let hash = 0
+      for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) % 100003
+      return PALETTE[hash % PALETTE.length]
     }
 
     function sortValue(repo, key) {
@@ -759,13 +803,23 @@ window.__ModuleLoader__.load({
       const scopeMissing = authState === 'missing-user-scope'
       const authCommand = data.auth?.command ?? ''
 
+      const gotoChanges = () => { setTab('changes'); setSelected(new Set()) }
+
       const head = h('div', { className: 'stars-head' },
-        h(StarIcon, { size: 18 }),
+        h('span', { className: 'stars-headicon' }, h(StarIcon, { size: 18 })),
         h('div', { className: 'stars-headtext' },
           h('div', { className: 'stars-title' }, t('title')),
           h('div', { className: 'stars-meta' },
-            data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)} · ${data.repos.length} 个 star` : t('never'),
-            unread > 0 ? ` · ${t('unread', unread)}` : '')),
+            h('span', null, data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)}` : t('never')),
+            h('span', { className: 'stars-metasep' }, '·'),
+            h('span', null, `${data.repos.length} 个 star`),
+            unread > 0
+              ? h('button', {
+                className: 'stars-unreadchip',
+                title: t('changesHint'),
+                onClick: gotoChanges,
+              }, t('unread', unread))
+              : null)),
         h('div', { className: 'stars-grow' }),
         h('button', {
           className: 'stars-btn',
@@ -826,19 +880,30 @@ window.__ModuleLoader__.load({
           job.current ? h('span', { className: 'stars-progresscurrent', title: job.current }, t('progressCurrent', job.current)) : null)
         : null
 
-      const railItem = (key, label, count, tone) => h('div', {
+      const railItem = (key, label, count, options = {}) => h('div', {
         key,
         className: 'stars-railitem',
         'data-active': String(tab === key),
+        title: options.title,
         onClick: () => { setTab(key); setSelected(new Set()) },
-      }, h('span', null, label), h('span', { className: 'stars-railcount' }, count))
+      },
+      options.icon
+        ? h('span', { className: 'stars-railicon' }, options.icon)
+        : options.color
+          ? h('span', { className: 'stars-dot', style: { '--stars-c': options.color } })
+          : null,
+      h('span', { className: 'stars-railitemlabel' }, label),
+      count === null || count === undefined
+        ? null
+        : h('span', { className: 'stars-railcount', 'data-tone': options.tone }, count))
 
       const rail = h('div', { className: 'stars-rail' },
-        railItem('all', t('all'), repos.length),
-        railItem('unsorted', t('unsorted'), unsortedCount),
-        railItem('changes', t('changes'), data.changes?.length ?? 0),
+        railItem('all', t('all'), repos.length, { icon: '★' }),
+        railItem('unsorted', t('unsorted'), unsortedCount, { icon: '◇' }),
+        // 这里只显示「未读」数：总数在变更页顶部写，两个数字各管各的，避免混淆。
+        railItem('changes', t('changes'), unread > 0 ? unread : null, { icon: '≡', tone: 'unread', title: t('changesHint') }),
         h('div', { className: 'stars-railgroup' }, t('lists')),
-        ...lists.map((list) => railItem(list.id, list.name, list.count ?? 0)),
+        ...lists.map((list) => railItem(list.id, list.name, list.count ?? 0, { color: colorOf(list.name) })),
         h('div', {
           className: 'stars-railitem',
           onClick: () => { setCreating(true); setNewListName('') },
@@ -930,12 +995,16 @@ window.__ModuleLoader__.load({
             : null)
         : null
 
+      const changes = data.changes ?? []
       const changeView = h('div', { className: 'stars-changes' },
-        (data.changes ?? []).length === 0
-          ? h('div', { className: 'stars-empty' }, t('emptyChanges'))
-          : data.changes.map((change) => h('div', { className: 'stars-change', key: change.id },
+        h('div', { className: 'stars-changesum' },
+          h('div', null, t('changesSummary', changes.length, unread)),
+          h('div', null, t('changesHint'))),
+        changes.length === 0
+          ? h('div', { className: 'stars-emptyhint' }, h('div', null, t('emptyChanges')))
+          : changes.map((change) => h('div', { className: 'stars-change', key: change.id, 'data-kind': change.kind },
             h('span', { className: 'stars-changedate' }, formatDate(change.at)),
-            h('span', { className: 'stars-chip', 'data-tone': change.kind === 'archived' || change.kind === 'gone' ? 'error' : 'brand' }, t('kinds')[change.kind] ?? change.kind),
+            h('span', { className: 'stars-chip' }, t('kinds')[change.kind] ?? change.kind),
             change.url
               ? h('a', { className: 'stars-repolink', href: change.url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12 } }, change.nameWithOwner)
               : h('span', { className: 'stars-dim' }, change.nameWithOwner ?? ''),
@@ -948,6 +1017,7 @@ window.__ModuleLoader__.load({
         return h('tr', {
           className: 'stars-row',
           key: repo.nameWithOwner,
+          'data-selected': String(selected.has(repo.nameWithOwner)),
           // 整行可点：点到勾选框、链接、按钮时交回给它们自己处理，
           // 正在拖选文字时也不抢点击。
           onClick: (event) => {
@@ -976,16 +1046,26 @@ window.__ModuleLoader__.load({
                 : null)),
           h('td', { style: { minWidth: 140 } },
             h('div', { className: 'stars-chips' },
-              ...chips.map((name) => h('span', { className: 'stars-chip', key: name }, name)),
+              ...chips.map((name) => h('span', {
+                className: 'stars-chip',
+                key: name,
+                'data-color': 'true',
+                style: { '--stars-c': colorOf(name) },
+              }, h('span', { className: 'stars-dot' }), name)),
               pending ? h('span', { className: 'stars-chip', 'data-tone': 'brand', key: '__pending' }, t('pendingChip')) : null,
               repo.archived ? h('span', { className: 'stars-chip', 'data-tone': 'warn', key: '__arch' }, t('archived')) : null,
               repo.stale ? h('span', { className: 'stars-chip', 'data-tone': 'warn', key: '__stale' }, t('stale')) : null,
               chips.length === 0 && !pending && !repo.archived && !repo.stale
                 ? h('span', { className: 'stars-dim' }, t('unsorted'))
                 : null)),
-          h('td', null, h('span', { className: 'stars-num' }, `★ ${repo.stars ?? 0}`)),
+          h('td', null, h('span', { className: 'stars-stars', title: `${repo.stars ?? 0} stars` }, `★ ${repo.stars ?? 0}`)),
           h('td', null,
             h('div', { className: 'stars-rowmeta' },
+              repo.language
+                ? h('span', { className: 'stars-lang' },
+                  h('span', { className: 'stars-langdot', style: { '--stars-c6': colorOf(repo.language) } }),
+                  repo.language)
+                : null,
               h('span', { className: 'stars-dim', title: formatDate(repo.pushedAt) }, relative(repo.pushedAt)),
               h('button', {
                 className: 'stars-rowact',
