@@ -218,3 +218,115 @@ test('view：返回带 desired 的仓库、列表计数与未读数，markViewed
   assert.equal(view.unreadCount, 0)
   assert.ok(view.lastViewedAt)
 })
+
+// ---- v0.2 数据模型：墓碑、结构操作、孤儿 ----
+
+test('applyFetch：保留 list 的 itemIds，并给没有 itemIds 的旧数据补空对象', async (t) => {
+  const store = await makeStore(t)
+  await seed(store, [repo('a/one')], [{ id: 'L1', name: 'Work', repos: ['a/one'] }])
+  assert.deepEqual(store.state.lists[0].itemIds, {})
+  assert.equal(store.state.lists[0].count, 1)
+
+  store.applyFetch({
+    repos: [repo('a/one')],
+    lists: [{ id: 'L1', name: 'Work', repos: ['a/one'], itemIds: { 'a/one': 'R_1' } }],
+  })
+  assert.deepEqual(store.state.lists[0].itemIds, { 'a/one': 'R_1' })
+})
+
+test('取消 star：markUnstarred 后的消失记成 unstarred，墓碑被消费掉', async (t) => {
+  const store = await makeStore(t)
+  await seed(store, [repo('a/one'), repo('a/two')], [])
+
+  store.markUnstarred('a/one')
+  assert.ok(store.state.unstarredAt['a/one'])
+  const changes = store.applyFetch({ repos: [repo('a/two')], lists: [] })
+  assert.equal(changes.length, 1)
+  assert.equal(changes[0].kind, 'unstarred')
+  assert.ok(changes[0].text.includes('已取消 star'))
+  // 一次性语义：消费后删掉，避免下次误判。
+  assert.equal(store.state.unstarredAt['a/one'], undefined)
+})
+
+test('取消 star：没有墓碑、或墓碑已过期时仍然记成 gone', async (t) => {
+  const store = await makeStore(t)
+  await seed(store, [repo('a/one'), repo('a/two')], [])
+
+  // 过期墓碑（8 天前）
+  store.markUnstarred('a/one')
+  store.state.unstarredAt['a/one'] = new Date(Date.now() - 8 * 86_400_000).toISOString()
+  const changes = store.applyFetch({ repos: [repo('a/two')], lists: [] })
+  assert.equal(changes[0].kind, 'gone')
+  assert.equal(store.state.unstarredAt['a/one'], undefined)
+})
+
+test('dropRepo：仓库从快照、顺序与所有分类成员里移除', async (t) => {
+  const store = await makeStore(t)
+  await seed(
+    store,
+    [repo('a/one'), repo('a/two')],
+    [{ id: 'L1', name: 'Work', repos: ['a/one', 'a/two'], itemIds: { 'a/one': 'R_1', 'a/two': 'R_2' } }],
+  )
+
+  const dropped = store.dropRepo('a/one')
+  assert.equal(dropped.nameWithOwner, 'a/one')
+  assert.equal(store.state.repos['a/one'], undefined)
+  assert.deepEqual(store.state.order, ['a/two'])
+  assert.deepEqual(store.state.lists[0].repos, ['a/two'])
+  assert.equal(store.state.lists[0].count, 1)
+  assert.deepEqual(store.state.lists[0].itemIds, { 'a/two': 'R_2' })
+  assert.equal(store.dropRepo('a/missing'), null)
+})
+
+test('removeList：分类消失后成员归属与指向它的暂存都被清掉', async (t) => {
+  const store = await makeStore(t)
+  await seed(
+    store,
+    [repo('a/one')],
+    [{ id: 'L1', name: 'Work', repos: ['a/one'] }, { id: 'L2', name: 'Fun', repos: [] }],
+  )
+  store.stage(['a/one'], { add: ['L2'], remove: [] })
+  assert.deepEqual(store.state.repos['a/one'].pending.add, ['L2'])
+
+  assert.equal(store.removeList('L1'), true)
+  assert.deepEqual(store.state.lists.map((list) => list.id), ['L2'])
+  assert.deepEqual(store.state.repos['a/one'].lists, [])
+  assert.equal(store.state.repos['a/one'].pending.add.includes('L1'), false)
+  assert.equal(store.removeList('L1'), false)
+})
+
+test('applyListRemoval：变未归类与移入另一分类两种去向', async (t) => {
+  const store = await makeStore(t)
+  await seed(
+    store,
+    [repo('a/one'), repo('a/two')],
+    [
+      { id: 'L1', name: 'Old', repos: ['a/one', 'a/two'] },
+      { id: 'L2', name: 'New', repos: [] },
+    ],
+  )
+
+  store.applyListRemoval('a/one', 'L1')
+  assert.deepEqual(store.state.lists[0].repos, ['a/two'])
+  assert.deepEqual(store.state.repos['a/one'].lists, [])
+
+  store.applyListRemoval('a/two', 'L1', 'L2')
+  assert.deepEqual(store.state.lists[0].repos, [])
+  assert.deepEqual(store.state.lists[1].repos, ['a/two'])
+  assert.deepEqual(store.state.repos['a/two'].lists, ['L2'])
+})
+
+test('view：孤儿成员 = 分类成员里不在 star 快照里的仓库', async (t) => {
+  const store = await makeStore(t)
+  await seed(
+    store,
+    [repo('a/one')],
+    [{ id: 'L1', name: 'Work', repos: ['a/one', 'a/orphan'] }, { id: 'L2', name: 'Empty', repos: [] }],
+  )
+
+  const view = store.view()
+  assert.deepEqual(view.orphans, [
+    { id: 'L1', names: ['a/orphan'] },
+    { id: 'L2', names: [] },
+  ])
+})

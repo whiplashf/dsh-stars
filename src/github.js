@@ -196,6 +196,7 @@ export class GitHub {
     for (const node of nodes) {
       const total = node?.items?.totalCount ?? 0
       const members = []
+      const itemIds = {}
       let cursor = null
       for (let page = 0; page < 20; page += 1) {
         if (page > 0 && total <= members.length) break
@@ -206,7 +207,7 @@ export class GitHub {
                 items(first: 100, after: $cursor) {
                   totalCount
                   pageInfo { hasNextPage endCursor }
-                  nodes { ... on Repository { nameWithOwner } }
+                  nodes { ... on Repository { id nameWithOwner } }
                 }
               }
             }
@@ -214,7 +215,11 @@ export class GitHub {
         `, { id: node.id, cursor }))
         const items = chunk?.node?.items
         for (const item of items?.nodes ?? []) {
-          if (item?.nameWithOwner) members.push(item.nameWithOwner)
+          if (item?.nameWithOwner) {
+            members.push(item.nameWithOwner)
+            // 孤儿成员不在 star 列表里，只能从这里拿到 node id（移出分类要用）。
+            if (item.id) itemIds[item.nameWithOwner] = item.id
+          }
         }
         if (!items?.pageInfo?.hasNextPage) break
         cursor = items.pageInfo.endCursor
@@ -226,6 +231,7 @@ export class GitHub {
         isPrivate: Boolean(node.isPrivate),
         count: total,
         repos: members,
+        itemIds,
       })
     }
     return { viewer, lists }
@@ -333,6 +339,30 @@ export class GitHub {
       }
     `, { itemId, listIds })
     return data?.updateUserListsForItem ?? null
+  }
+
+  /** 取消 star。GitHub 会顺手把仓库从所有 Lists 里移除，不需要再清归属。 */
+  async removeStar(itemId) {
+    const data = await this.#graphql(`
+      mutation ($itemId: ID!) {
+        removeStar(input: { starrableId: $itemId }) {
+          starrable { ... on Repository { nameWithOwner } }
+        }
+      }
+    `, { itemId })
+    return data?.removeStar ?? null
+  }
+
+  /** 删除一个 Lists 分类。调用前必须先把成员搬走，否则成员会带着悬空 id。 */
+  async deleteList(listId) {
+    const data = await this.#graphql(`
+      mutation ($listId: ID!) {
+        deleteUserList(input: { userListId: $listId }) {
+          userList { id name }
+        }
+      }
+    `, { listId })
+    return data?.deleteUserList ?? null
   }
 
   async createList(name, description = '', isPrivate = false) {

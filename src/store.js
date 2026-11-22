@@ -8,6 +8,8 @@ import path from 'node:path'
 export const MAX_CHANGES = 400
 /** star 数变化小于该绝对值时不登记为变更。 */
 export const STAR_DELTA_MIN = 10
+/** 取消 star 的墓碑保留时长：超过这个时间的「仓库消失」不再算手动取消。 */
+export const UNSTARRED_TTL_MS = 7 * 86_400_000
 
 export function blankState() {
   return {
@@ -20,6 +22,8 @@ export function blankState() {
     baselineAt: null,
     lastViewedAt: null,
     changes: [],
+    // 本面板取消 star 时会先记一笔，下次抓取才能把 unstarred 和「在别处取消的」区分开。
+    unstarredAt: {},
   }
 }
 
@@ -99,6 +103,12 @@ export class Store {
     for (const repo of Object.values(this.#state.repos)) {
       repo.pending = normalizePending(repo.pending)
       if (!Array.isArray(repo.lists)) repo.lists = []
+    }
+    if (!this.#state.unstarredAt || typeof this.#state.unstarredAt !== 'object') this.#state.unstarredAt = {}
+    for (const list of this.#state.lists) {
+      if (!Array.isArray(list.repos)) list.repos = []
+      if (!list.itemIds || typeof list.itemIds !== 'object') list.itemIds = {}
+      list.count = list.repos.length
     }
     // 旧版本把每次 +1 star 都记成变更；读盘时清掉这些噪声，只留阈值以上的涨跌。
     const seen = new Set()
@@ -187,12 +197,32 @@ export class Store {
     }
 
     for (const name of Object.keys(prev)) {
-      if (!next[name]) changes.push(changeEntry('gone', { nameWithOwner: name, url: prev[name]?.url }, `已取消 star：${name}`))
+      if (next[name]) continue
+      // 本面板取消 star 的仓库会留下墓碑：分得清「我删的」和「在别处取消的」，
+      // 否则用户点完取消 star 再刷新，会看到一条莫名其妙的「已取消 star」变更。
+      const tomb = this.#state.unstarredAt?.[name]
+      const mine = tomb && now - Date.parse(tomb) < UNSTARRED_TTL_MS
+      changes.push(changeEntry(
+        mine ? 'unstarred' : 'gone',
+        { nameWithOwner: name, url: prev[name]?.url },
+        mine ? `已取消 star：${name}` : `已不在星标里：${name}（可能在其他设备取消）`,
+      ))
+      if (tomb) delete this.#state.unstarredAt[name]
+    }
+    // 过期的墓碑顺手清掉，避免无限增长。
+    for (const [name, at] of Object.entries(this.#state.unstarredAt ?? {})) {
+      if (!Number.isFinite(Date.parse(at)) || now - Date.parse(at) >= UNSTARRED_TTL_MS) delete this.#state.unstarredAt[name]
     }
 
     this.#state.repos = next
     this.#state.order = order
-    this.#state.lists = fetched.lists ?? []
+    this.#state.lists = (fetched.lists ?? []).map((list) => ({
+      ...list,
+      repos: [...(list.repos ?? [])],
+      // item 的 node id 只有 GitHub 知道；孤儿成员（已不在 star 里）移出分类时要用它。
+      itemIds: { ...(list.itemIds ?? {}) },
+      count: (list.repos ?? []).length,
+    }))
     this.#state.viewer = fetched.viewer ?? this.#state.viewer
     this.#state.snapshotAt = new Date().toISOString()
     this.#state.baselineAt ??= this.#state.snapshotAt
@@ -274,9 +304,89 @@ export class Store {
     this.#state.lastViewedAt = new Date().toISOString()
   }
 
+  /** 直接在变更流里插一条（取消 star 这类「用户自己刚做的」不能等下次抓取才显示）。 */
+  pushChange(kind, repo, text, extra = {}) {
+    const entry = changeEntry(kind, repo, text, extra)
+    const key = `${kind}:${repo?.nameWithOwner ?? ''}`
+    this.#state.changes = [
+      entry,
+      ...this.#state.changes.filter((change) => `${change.kind}:${change.nameWithOwner}` !== key),
+    ].slice(0, MAX_CHANGES)
+    return entry
+  }
+
+  /** 取消 star 成功后：仓库从本地快照里彻底消失（连同它的暂存与分类归属）。 */
+  dropRepo(nameWithOwner) {
+    const repo = this.#state.repos[nameWithOwner]
+    if (!repo) return null
+    delete this.#state.repos[nameWithOwner]
+    this.#state.order = this.#state.order.filter((name) => name !== nameWithOwner)
+    for (const list of this.#state.lists) {
+      list.repos = (list.repos ?? []).filter((name) => name !== nameWithOwner)
+      if (list.itemIds) delete list.itemIds[nameWithOwner]
+      list.count = list.repos.length
+    }
+    return repo
+  }
+
+  /** 记一笔取消 star 的墓碑，供下次 applyFetch 区分 unstarred / gone。 */
+  markUnstarred(nameWithOwner) {
+    if (!this.#state.unstarredAt || typeof this.#state.unstarredAt !== 'object') this.#state.unstarredAt = {}
+    this.#state.unstarredAt[nameWithOwner] = new Date().toISOString()
+  }
+
+  /** 删除分类（GitHub 侧已删成功后才调用）。 */
+  removeList(listId) {
+    const before = this.#state.lists.length
+    this.#state.lists = this.#state.lists.filter((list) => list.id !== listId)
+    // 分类没了，任何指向它的暂存都不再有意义。
+    for (const repo of Object.values(this.#state.repos)) {
+      const pending = normalizePending(repo.pending)
+      pending.add = pending.add.filter((id) => id !== listId)
+      pending.remove = pending.remove.filter((id) => id !== listId)
+      repo.pending = hasPending(pending) ? pending : emptyPending()
+      repo.lists = (repo.lists ?? []).filter((id) => id !== listId)
+    }
+    return before !== this.#state.lists.length
+  }
+
+  /** 把某个仓库从分类里移出（可选同时并入另一个分类）。 */
+  applyListRemoval(nameWithOwner, listId, targetListId = null) {
+    for (const list of this.#state.lists) {
+      if (list.id === listId) {
+        list.repos = (list.repos ?? []).filter((name) => name !== nameWithOwner)
+        if (list.itemIds) delete list.itemIds[nameWithOwner]
+        list.count = list.repos.length
+      } else if (targetListId && list.id === targetListId) {
+        const repos = list.repos ?? []
+        if (!repos.includes(nameWithOwner)) list.repos = [...repos, nameWithOwner]
+        list.count = list.repos.length
+      }
+    }
+    const repo = this.#state.repos[nameWithOwner]
+    if (repo) {
+      const pending = normalizePending(repo.pending)
+      pending.add = pending.add.filter((id) => id !== listId)
+      pending.remove = pending.remove.filter((id) => id !== listId)
+      repo.pending = hasPending(pending) ? pending : emptyPending()
+      repo.lists = (repo.lists ?? []).filter((id) => id !== listId)
+      if (targetListId && !repo.lists.includes(targetListId)) repo.lists.push(targetListId)
+    }
+  }
+
   /** 拼给客户端的视图：仓库数组 + 统计 + 未读变更。 */
   view() {
-    const lists = this.#state.lists.map((list) => ({ ...list, repos: undefined, count: list.repos?.length ?? list.count ?? 0 }))
+    // 孤儿成员 = 挂在分类里、但已经不在 star 列表里（GitHub 允许这种状态）。
+    const orphans = this.#state.lists.map((list) => ({
+      id: list.id,
+      names: (list.repos ?? []).filter((name) => !this.#state.repos[name]),
+    }))
+    const lists = this.#state.lists.map((list) => ({
+      ...list,
+      repos: undefined,
+      itemIds: undefined,
+      count: list.repos?.length ?? list.count ?? 0,
+    }))
     const repos = (this.#state.order ?? Object.keys(this.#state.repos)).map((name) => this.#state.repos[name]).filter(Boolean)
     const lastViewedAt = this.#state.lastViewedAt
     const unread = lastViewedAt
@@ -285,6 +395,7 @@ export class Store {
     return {
       viewer: this.#state.viewer,
       lists,
+      orphans,
       repos: repos.map((repo) => ({ ...repo, desired: desiredLists(repo) })),
       changes: this.#state.changes,
       unreadCount: unread.length,
