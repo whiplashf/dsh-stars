@@ -524,7 +524,8 @@ export function apply(ctx, config = {}) {
           if (!name || names.length === 0) continue
           let list = store.state.lists.find((item) => item.name.toLowerCase() === name.toLowerCase())
           if (!list) {
-            const made = await github.createList(name)
+            // 分类描述统一打上来源标记，GitHub Lists 页里一眼能看出是插件建的。
+            const made = await github.createList(name, 'dsh-stars 自动创建')
             store.setList(made)
             created += 1
             list = made
@@ -545,7 +546,8 @@ export function apply(ctx, config = {}) {
         await store.load()
         const name = String(payload.name ?? '').trim()
         if (!name) throw new GitHubError('invalid', '列表名不能为空')
-        const created = await github.createList(name, String(payload.description ?? ''), Boolean(payload.isPrivate))
+        const note = String(payload.description ?? '').trim() || 'dsh-stars 自动创建'
+        const created = await github.createList(name, note, Boolean(payload.isPrivate))
         store.setList(created)
         await store.save()
         return view()

@@ -139,6 +139,8 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 21. 「采纳全部建议」只在**有规则命中的未归类仓库**时才出现——27 个未归类里大多命中不了关键词，所以分布条经常是空的，这是正常的；AI 整理按钮因此放在顶部而不是分布条里。
 22. 剩下的最贵路径是 `fetchStarred`：100 个仓库带 topics + latestRelease 的一页在 GitHub 侧就要 5.9s（去掉 topics 4.0s、只取最小字段 2.7s），114 star 两页 ≈ 7.5s，`refresh` 因此还在 9s 左右。要再快只能拆查询或按需取 topics。
 
+23. **新建分类要带描述**：`github.createList(name, description)` 的第二个参数不传就留空，GitHub Lists 页里只看得到名字。插件建分类统一写 `dsh-stars 自动创建`（`acceptSuggestions`、`organizeApply`、面板 `createList` 三处都传）；已经建空的历史列表用 `updateUserList(input:{listId, description})` 补。注意 `updateUserList` 的 `name` 不传会保持原名，`description: ""` 可以清空。
+
 ## 下一步候选（按价值排）
 
 1. **把剩下 27 个未归类手工归掉**（86 条已同步上线）——数据价值最大的一步。可以顺手把 27 条里反复出现的词补进 `classify.js` 规则。
