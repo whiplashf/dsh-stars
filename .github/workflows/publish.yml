@@ -1,0 +1,89 @@
+name: publish
+
+# Publishes to npm when a version tag is pushed (v1.2.3).
+# Uses npm Trusted Publishing (OIDC): no npm token is stored in this repository.
+# One-time setup, after the first manual publish of the package:
+#   npm package page -> Settings -> Trusted Publisher -> GitHub Actions,
+#   repository whiplashf/dsh-stars, workflow file publish.yml.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Node 22 ships npm 10, which predates Trusted Publishing; OIDC exchange
+      # needs npm >= 11.5.1, otherwise the PUT goes out unauthenticated (E404).
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@11
+
+      - name: Check the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "tag $tag does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      # Trusted publishing only works for a package that already exists on the
+      # registry. The first release has to be published by hand (with an OTP or
+      # a granular token), otherwise this job would fail with E404.
+      - name: Does the package exist on npm?
+        id: exists
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          if npm view "$name" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 只改文档（README / docs / assets）不值得占一个版本号：npm 页面会旧一点，
+      # 等下一次真正的代码改动一起同步。这里直接把发布跳过。
+      - name: Does this release still change code?
+        id: diff
+        run: |
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              *.md|docs/*|assets/*|LICENSE) ;;
+              *) code=true ;;
+            esac
+          done <<< "$(git diff --name-only "$prev..$GITHUB_REF_NAME")"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        if: steps.exists.outputs.exists == 'true' && steps.diff.outputs.code == 'true'
+        run: npm publish --provenance --access public
+
+      - name: First release is manual
+        if: steps.exists.outputs.exists == 'false'
+        run: |
+          echo "::notice::${{ github.ref_name }} 是第一次发布：npm 上还没有这个包，Trusted Publishing 只能用在已存在的包上。先手动 npm publish 一次，再到包设置里配好 Trusted Publisher，之后这个 workflow 才会接管。"
+
+      - name: Skipped (docs only)
+        if: steps.exists.outputs.exists == 'true' && steps.diff.outputs.code == 'false'
+        run: echo "::notice::只有文档改动，不发布新版本；GitHub 上的文档已经是新的。"
