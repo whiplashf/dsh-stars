@@ -500,8 +500,8 @@ window.__ModuleLoader__.load({
     const DEFAULT_SORT = { key: 'starred', dir: 'desc' }
 
     const PAGE_KEY = 'dsh-stars.pageSize'
-    const PAGE_SIZES = [25, 50, 100, 200]
-    const DEFAULT_PAGE_SIZE = 50
+    const PAGE_SIZES = [30, 50, 100, 200]
+    const DEFAULT_PAGE_SIZE = 30
 
     function readPageSize() {
       try {
