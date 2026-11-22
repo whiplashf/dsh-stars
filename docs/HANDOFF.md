@@ -8,7 +8,8 @@ DSH 插件 `dsh-stars` v0.1.0 已完成、真实验证、**已开源**（`github
 
 发布状态（2026-11-22）：
 
-- GitHub：public 仓库 + `v0.1.0` tag + Release（附 `dsh-stars-0.1.0.tgz` 预构建包），topics 有 `dsh-plugin`。
+- GitHub：public 仓库 + `v0.1.0` tag + Release，挂了两个资产：`dsh-stars-0.1.0.tgz` 与**不带版本号的** `dsh-stars.tgz`；topics 有 `dsh-plugin`。
+- 发版通道（**不用 npm**）：`.github/workflows/release.yml` 在推 `v*` tag 时 `npm pack` → 改名 `dsh-stars.tgz` → 建/更新 Release 并 `--clobber` 上传。资产名必须保持无版本号，因为市场用 `releases/latest/download/<asset>` 推导新版本；换名字市场和用户都拿不到更新。
 - npm：**还没发**（本机 `~/.npmrc` 的 npmjs token 已失效，`npm whoami --registry https://registry.npmjs.org` 返回 401）。发的时候：`npm publish --registry https://registry.npmjs.org`，前提是先 `npm login`。账号 2FA 是 security key 形态，本机登录时卡在「Use security key」（用户没有手边设备、也没有恢复码），走的恢复路径是 npm 官网 2FA 页 →「Use a recovery code or request a reset」→「Try recovering your account」→ 邮箱收 OTP → 提交 Reset my two-factor authentication 工单（人工处理，见 https://docs.npmjs.com/recovering-your-2fa-enabled-account）。注意：用恢复码登录会触发 72 小时发布冻结。首版必须手工发（Trusted Publishing 只对已存在的包生效），之后由 `.github/workflows/publish.yml` 接管（push tag → OIDC，无需 token）。
 - 插件市场条目：已在 fork `whiplashf/awesome-dsh-plugin` 的分支 `add-dsh-stars` 提交 `data/plugins/whiplashf__dsh-stars.yml`（commit `22b9857`），**PR 还没开**——收录要求仓库创建满 1 天，2026-11-23 之后才符合。开 PR：`gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --base main --head whiplashf:add-dsh-stars`。
 - 数据侧：114 star / 8 lists / pending 0 / 未归类 27（关键词命中不了的，需要手工归）。

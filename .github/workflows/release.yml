@@ -1,0 +1,55 @@
+name: release
+
+# Attaches the prebuilt npm tarball to the GitHub Release for a version tag.
+# No npm account is involved: this is the whole publishing pipeline now, so a
+# release is `git tag v0.1.1 && git push --tags` and nothing else.
+#
+# The asset is deliberately VERSION-LESS (`dsh-stars.tgz`) and every release
+# replaces it. The plugin market's update detection reads
+#   <repo>/releases/latest/download/<asset>
+# and derives the version from that release's tag, so the asset name in the
+# catalog entry has to stay stable across releases. A versioned filename
+# (`dsh-stars-0.1.1.tgz`) still installs, but the market can then only add the
+# version from its own tag, and every release would need the catalog entry
+# edited to point at the new filename.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "tag $tag does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Build the tarball
+        run: |
+          npm pack
+          mv ./*.tgz dsh-stars.tgz
+          tar -tzf dsh-stars.tgz | head -20
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "dsh-stars ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dsh-stars.tgz --clobber

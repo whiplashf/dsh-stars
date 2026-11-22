@@ -22,11 +22,13 @@ GitHub 自带的 stars 页面只能一页页翻，分类要么靠 Lists（没有
 
 ## 安装
 
-在 DSH 的插件市场里搜 `dsh-stars` 安装，或从命令行装 npm 包：
+在 DSH 的插件市场里搜 `dsh-stars` 直接点击安装（市场从 GitHub Release 上的预构建包装，不需要构建）。等价的命令行：
 
 ```bash
-dsh plugin --profile web add dsh-stars
+dsh plugin --profile web add https://github.com/whiplashf/dsh-stars/releases/latest/download/dsh-stars.tgz
 ```
+
+`latest/download` 指向最新的 Release，所以这个地址不用随版本变化。
 
 本地开发时直接装目录（profile 里写入 `link:` 依赖，改客户端代码刷新即可）：
 
