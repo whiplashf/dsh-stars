@@ -652,7 +652,10 @@ window.__ModuleLoader__.load({
       }, [chips, inTab, lang, query, sort, suggestFilter, suggestions])
 
       const unread = data?.updatesUnread ?? 0
-      const updates = data?.updates ?? []
+      // 更新页只显示「当前跟踪的仓库」：取消跟踪后它以前的条目也一并离开视野，
+      // 这样这一页的语义和标签一致（历史条目仍留在 state 里，只是不再展示）。
+      const watchedSet = new Set(data?.watched ?? [])
+      const updates = (data?.updates ?? []).filter((entry) => !entry.nameWithOwner || watchedSet.has(entry.nameWithOwner))
       const ops = data?.ops ?? []
       const watchedCount = (data?.watched ?? []).length
       const pendingCount = repos.filter((repo) => repo.pending?.add?.length || repo.pending?.remove?.length).length
