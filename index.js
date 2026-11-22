@@ -173,6 +173,8 @@ export function apply(ctx, config = {}) {
     const snapshot = jobSnapshot()
     return {
       ...result,
+      // 后台正在抓取时前端显示「正在刷新…」，不用傻等。
+      refreshing: Boolean(inFlight),
       suggestions: suggestAll(result.repos, rules),
       error: lastError,
       staleDays,
@@ -187,20 +189,45 @@ export function apply(ctx, config = {}) {
     await store.load()
     // 同步进行中不重抓：抓回来的 Lists 归属还是旧的，会把面板状态抖回去。
     if (jobRunning()) return view()
-    const status = await probeAuth()
-    // 连不上 gh 的两种状态没必要再发一次注定失败的抓取，直接把引导带回去。
-    if (status.state === 'no-gh' || status.state === 'not-logged-in') {
-      if (!lastError) lastError = { code: 'unauthenticated', message: status.state === 'no-gh' ? '找不到 gh 命令' : 'gh 还没有登录' }
-      return view()
-    }
+    const hasCache = (store.state.order ?? []).length > 0
     const snapshotAt = store.state.snapshotAt
     const stale = !snapshotAt || Date.now() - Date.parse(snapshotAt) > Math.max(0, minRefreshMs)
-    if (force || stale) {
+
+    if (force) {
+      await probeAuth(true)
       try {
         await refresh()
       } catch {
         // 抓取失败时继续用旧快照，错误通过 view().error 暴露给面板。
       }
+      return view()
+    }
+
+    if (hasCache) {
+      // 有快照就先把快照给出去（毫秒级），过期与否都放后台刷新：
+      // 面板秒开，数字随后自己更新，用户不用对着空白等 5–10 秒。
+      if (stale) {
+        void probeAuth().catch(() => {})
+        if (!inFlight) refresh().catch(() => {})
+      }
+      return view()
+    }
+
+    // 第一次用没有快照，只能等这一轮；先确认 gh 可用，避免白等。
+    const status = await probeAuth()
+    if (status.state === 'no-gh' || status.state === 'not-logged-in') {
+      if (!lastError) {
+        lastError = {
+          code: 'unauthenticated',
+          message: status.state === 'no-gh' ? '找不到 gh 命令' : 'gh 还没有登录',
+        }
+      }
+      return view()
+    }
+    try {
+      await refresh()
+    } catch {
+      // 同上：失败时交出空快照 + error。
     }
     return view()
   }

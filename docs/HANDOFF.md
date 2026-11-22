@@ -145,6 +145,8 @@ action 全集：`state` / `refresh` / `stage` / `acceptSuggestions` / `plan` / `
 
 24. **主题色不能想当然**：`--dsw-alias-brand-primary` 是**前景色**（亮 `#0f1115`、暗 `#f9fafb`），拿它当按钮底色在暗色主题下就是白底白字；主按钮要用 `background: label-primary + color: bg-layer-1`。可用的：`--dsw-alias-link`（亮 `#4176e6` / 暗 `#7aaaff`，做链接和强调）、`state-success/warn/error-primary`、`label-primary/secondary/tertiary/caption`、`bg-layer-1/2`、`interactive-bg-hover`、`card-fill(-hover)`。不存在但曾被我写错的：`--dsw-alias-state-warning-primary`（应为 `state-warn-primary`）、`--dsw-alias-fg-secondary`（应为 `label-secondary`）。改主题相关样式后必须用 Playwright `colorScheme: 'light' | 'dark'` 两套各截一次图。
 
+26. **首屏慢不是抓取慢**：浏览器会话里第一次打 `/api/dsh-stars` 要 ~1.6–2s（插件实例/路由首次命中），而同样请求在 Node 里只要 10ms；再叠上挂载就变成用户感知的「点开要等五六秒」。做法：`client.js` 的 `apply()` 里 `void warmUp()` 预热一次 `state`，并把结果存 `warmState` 给 `useState` 做初值；`readState` 有快照时永远先返回缓存、把过期刷新丢后台（`view().refreshing`），前端 `refreshing` 为真时每 900ms 轻量轮询、头部显示「正在刷新…」。实测点开到首行 2167ms → 431ms。
+
 ## 下一步候选（按价值排）
 
 1. **把剩下 27 个未归类手工归掉**（86 条已同步上线）——数据价值最大的一步。可以顺手把 27 条里反复出现的词补进 `classify.js` 规则。

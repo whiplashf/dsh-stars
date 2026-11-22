@@ -54,6 +54,9 @@ window.__ModuleLoader__.load({
       updates: '更新',
       updatesSummary: (total, unread) => unread > 0 ? `共 ${total} 条更新 · ${unread} 条未读` : `共 ${total} 条更新`,
       updatesHint: '只统计你跟踪的仓库：行右侧点 ☆ 跟踪后，它的新版本、新提交、归档、star 涨跌会出现在这里',
+      refreshing: '正在刷新…',
+      loadingFirst: '正在从 GitHub 读取星标与分类…',
+      loadingHint: '第一次打开会慢一些（约 5–10 秒）；之后打开直接用本地快照，秒开。',
       emptyUpdates: '还没有可看的更新。在列表里点行右侧的 ☆ 跟踪某个仓库，之后它的远端变化才会以未读提醒出现在这里。',
       ops: '操作记录',
       opsSummary: (total) => `共 ${total} 条操作记录：收藏、取消收藏、归类、同步、建删分类、AI 整理`,
@@ -196,6 +199,9 @@ window.__ModuleLoader__.load({
       updates: 'Updates',
       updatesSummary: (total, unread) => unread > 0 ? `${total} updates · ${unread} unread` : `${total} updates`,
       updatesHint: 'Only repos you track: hit ☆ on a row to follow its releases, commits, archive state and star moves.',
+      refreshing: 'Refreshing…',
+      loadingFirst: 'Reading your stars and lists from GitHub…',
+      loadingHint: 'The first open takes a few seconds; later opens use the local snapshot and render instantly.',
       emptyUpdates: 'Nothing to show yet. Hit ☆ on a row to track a repository.',
       ops: 'Activity',
       opsSummary: (total) => `${total} entries: starring, unstarring, sorting, syncing, list changes, AI organize`,
@@ -306,6 +312,11 @@ window.__ModuleLoader__.load({
 .stars-chips{display:flex;flex-wrap:wrap;gap:4px}
 .stars-num{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .stars-dim{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}
+.stars-loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:48px 16px}
+.stars-loadingdot{width:10px;height:10px;border-radius:50%;background:var(--dsw-alias-link);animation:stars-pulse 1.1s ease-in-out infinite}
+.stars-loadingtext{font-size:13px;color:var(--dsw-alias-label-primary)}
+.stars-loadinghint{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+@keyframes stars-pulse{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
 .stars-empty{display:flex;align-items:center;justify-content:center;height:200px;color:var(--dsw-alias-label-tertiary);font-size:13px}
 .stars-banner{margin:12px 16px 0;padding:8px 12px;border-radius:var(--dsw-radius-sm);font-size:12px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary);display:flex;gap:8px;align-items:center}
 .stars-banner[data-tone=ok]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent);color:var(--dsw-alias-state-success-primary)}
@@ -401,6 +412,19 @@ window.__ModuleLoader__.load({
 .stars-change[data-kind=remove] .stars-chip,.stars-change[data-kind=deleteList] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
 .stars-change[data-kind=organize] .stars-chip,.stars-change[data-kind=createList] .stars-chip{background:color-mix(in srgb,var(--stars-c4) 18%,transparent);color:var(--stars-c4)}
 `
+
+    // 面板挂在侧栏里，用户点进来之前先跟宿主热一次：/api 路由、插件实例、本地快照
+    // 都在这一下里就绪，点开时直接拿这次的结果渲染首屏（省掉 1–2 秒冷启动）。
+    let warmState = null
+    let warmInFlight = null
+    function warmUp() {
+      if (!warmInFlight) {
+        warmInFlight = rpc({ action: 'state' })
+          .then((value) => { if (Array.isArray(value?.repos)) warmState = value })
+          .catch(() => {})
+      }
+      return warmInFlight
+    }
 
     function ensureCss() {
       const tag = 'style[data-plugin-css="dsh-stars"]'
@@ -537,7 +561,7 @@ window.__ModuleLoader__.load({
     }
 
     function StarsPage() {
-      const [data, setData] = React.useState(null)
+      const [data, setData] = React.useState(() => warmState)
       const [tab, setTab] = React.useState('all')
       const [query, setQuery] = React.useState('')
       const [chips, setChips] = React.useState(() => new Set())
@@ -603,6 +627,17 @@ window.__ModuleLoader__.load({
           pollingRef.current = false
         }
       }, [t])
+
+      // 后台刷新期间轻量轮询（不走 run：不想把整块 UI 置成 busy），刷新完自动停。
+      React.useEffect(() => {
+        if (!data?.refreshing) return undefined
+        const timer = setInterval(() => {
+          rpc({ action: 'state' })
+            .then((value) => { if (value && Array.isArray(value.repos)) setData(value) })
+            .catch(() => {})
+        }, 900)
+        return () => clearInterval(timer)
+      }, [data?.refreshing])
 
       React.useEffect(() => {
         run({ action: 'state' })
@@ -844,7 +879,12 @@ window.__ModuleLoader__.load({
 
       if (!data) {
         return h('div', { className: 'stars-root' },
-          h('div', { className: 'stars-empty' }, error ? `${t('errorPrefix')}：${error}` : t('loading')))
+          error
+            ? h('div', { className: 'stars-empty' }, `${t('errorPrefix')}：${error}`)
+            : h('div', { className: 'stars-empty stars-loading' },
+              h('div', { className: 'stars-loadingdot' }),
+              h('div', { className: 'stars-loadingtext' }, t('loadingFirst')),
+              h('div', { className: 'stars-loadinghint' }, t('loadingHint'))))
       }
 
       const syncing = Boolean(job?.running)
@@ -1336,6 +1376,8 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply(ctx) {
         ensureCss()
+        // 进入 app 就先热一次，不要等用户点开面板才开始。
+        void warmUp()
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-stars: dictionaries')
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS }, StarsPage))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
