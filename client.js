@@ -98,7 +98,7 @@ window.__ModuleLoader__.load({
       deleteTitle: (name) => `删除分类「${name}」`,
       deleteEmptyHint: '这个分类是空的，删除后不可恢复。',
       deleteBusyHint: (n) => `里面有 ${n} 个仓库，先选择它们的去向：`,
-      deleteToUnsorted: '变未归类',
+      deleteToUnsorted: '只移出这个分类，保留其他归属',
       deleteToMove: '移入另一个分类',
       deleteTarget: '目标分类',
       deleteConfirm: '删除分类',
@@ -281,7 +281,7 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
-.stars-root{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}
+.stars-root{container:stars-panel / inline-size;display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}
 .stars-head{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none}
 .stars-headtext{display:flex;flex-direction:column;gap:2px;min-width:0}
 .stars-title{font-size:15px;font-weight:600;letter-spacing:.01em}
@@ -298,7 +298,7 @@ window.__ModuleLoader__.load({
 .stars-body{display:flex;flex:1;min-height:0}
 .stars-rail{width:200px;flex:none;border-right:1px solid var(--dsw-alias-border-l1);padding:10px 8px;overflow:auto}
 .stars-railgroup{margin:10px 0 4px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dsw-alias-label-caption)}
-.stars-railitem{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--dsw-radius-sm);cursor:pointer;color:var(--dsw-alias-label-secondary);user-select:none}
+.stars-railitem{border:0;background:transparent;font:inherit;text-align:left;width:100%;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--dsw-radius-sm);cursor:pointer;color:var(--dsw-alias-label-secondary);user-select:none}
 .stars-railitem:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .stars-railitem[data-active=true]{background:var(--dsw-alias-card-fill-hover);color:var(--dsw-alias-label-primary);font-weight:600}
 .stars-railcount{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
@@ -341,7 +341,7 @@ window.__ModuleLoader__.load({
 .stars-changes{padding:14px 20px;display:flex;flex-direction:column;gap:6px;overflow:auto}
 .stars-change{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-card-fill)}
 .stars-changedate{font-size:11px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;min-width:62px}
-.stars-dialog{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.32);z-index:50}
+.stars-dialogbox::backdrop{background:rgba(0,0,0,.38)}
 .stars-chipbtn{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
 .stars-chipbtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .stars-chipbtn[data-active=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
@@ -349,8 +349,7 @@ window.__ModuleLoader__.load({
 .stars-sortth:hover{color:var(--dsw-alias-label-primary)}
 .stars-sortmark{margin-left:4px;font-size:9px;color:var(--dsw-alias-brand-primary)}
 .stars-rowmeta{display:flex;align-items:center;gap:8px;justify-content:space-between}
-.stars-rowact{font-size:11px;padding:1px 6px;border-radius:var(--dsw-radius-sm);border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;opacity:0;transition:opacity .12s ease}
-.stars-tr:hover .stars-rowact,.stars-row:hover .stars-rowact{opacity:1}
+.stars-rowact{font-size:11px;padding:1px 6px;border-radius:var(--dsw-radius-sm);border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .stars-rowact:hover{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-border-l1)}
 .stars-plansummary{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.6}
 .stars-planlist{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);padding:8px;background:var(--dsw-alias-bg-layer-1)}
@@ -361,7 +360,17 @@ window.__ModuleLoader__.load({
 .stars-orphantoggle{font-size:11px;color:var(--dsw-alias-label-tertiary);background:transparent;border:0;cursor:pointer;padding:0}
 .stars-orphantoggle:hover{color:var(--dsw-alias-label-primary)}
 .stars-orphanrow{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:3px 0;opacity:.75}
-.stars-dialogbox{max-height:80vh;overflow:auto;width:420px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);padding:16px;display:flex;flex-direction:column;gap:10px}
+.stars-dialogbox{box-sizing:border-box;margin:auto;max-width:calc(100vw - 24px);max-height:85dvh;color:var(--dsw-alias-label-primary);overflow:auto;width:420px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);padding:16px;display:flex;flex-direction:column;gap:10px}
+.stars-dialogbox[data-wide=true]{width:580px}
+.stars-reviewlist{list-style:none;margin:0;padding:0;max-height:48dvh;overflow:auto;border-block:1px solid var(--dsw-alias-border-l1)}
+.stars-reviewitem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;padding:9px 2px;align-items:center}
+.stars-reviewitem+.stars-reviewitem{border-top:1px solid var(--dsw-alias-border-l1)}
+.stars-reviewname{font-weight:600;overflow-wrap:anywhere}
+.stars-reviewpath{grid-column:1;font-size:12px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.stars-reviewpath[data-clear=true]{color:var(--dsw-alias-state-warn-primary)}
+.stars-reviewitem button{grid-column:2;grid-row:1 / span 2}
+.stars-reviewmore{align-self:flex-start}
+.stars-dialogbox :focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
 .stars-dialogtitle{font-size:14px;font-weight:600}
 .stars-dialogactions{display:flex;justify-content:flex-end;gap:8px}
 .stars-cb{width:14px;height:14px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}
@@ -413,7 +422,7 @@ window.__ModuleLoader__.load({
 .stars-chip[data-tone=brand]{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
 .stars-upd{text-align:right;white-space:nowrap;width:130px;position:relative}
 .stars-hoveracts{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:0;pointer-events:none;background:var(--dsw-alias-bg-layer-1);box-shadow:0 0 0 6px var(--dsw-alias-bg-layer-1);border-radius:8px}
-.stars-row:hover .stars-hoveracts{opacity:1;pointer-events:auto}
+.stars-row:hover .stars-hoveracts,.stars-row:focus-within .stars-hoveracts{opacity:1;pointer-events:auto}
 .stars-sortth.stars-upd{text-align:right}
 .stars-change[data-kind=new] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
 .stars-change[data-kind=release] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
@@ -424,22 +433,88 @@ window.__ModuleLoader__.load({
 .stars-changesum{margin:0 0 6px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .stars-emptyhint{display:flex;flex-direction:column;align-items:center;gap:6px;height:220px;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;padding:0 24px;line-height:1.7}
 .stars-progressfill{background:var(--dsw-alias-link)}
-.stars-track{opacity:0}
-.stars-track[data-on=true]{opacity:1;color:var(--dsw-alias-link)}
+.stars-track[data-on=true]{color:var(--dsw-alias-link)}
 .stars-track[data-on=true]:hover{color:var(--dsw-alias-link)}
 .stars-change[data-kind=assign] .stars-chip,.stars-change[data-kind=sync] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
 .stars-change[data-kind=remove] .stars-chip,.stars-change[data-kind=deleteList] .stars-chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
 .stars-change[data-kind=organize] .stars-chip,.stars-change[data-kind=createList] .stars-chip{background:color-mix(in srgb,var(--stars-c4) 18%,transparent);color:var(--stars-c4)}
+.stars-pagechecklabel{display:none}
+.stars-sortbutton{font:inherit;color:inherit;border:0;background:transparent;padding:0;cursor:pointer}
+.stars-repotitle{display:flex;align-items:baseline;gap:8px;max-width:100%}
+.stars-railitemlabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stars-detailbtn{flex:none;padding:0 3px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;cursor:pointer}
+.stars-detailbtn:hover,.stars-detailbtn:focus-visible{color:var(--dsw-alias-link);text-decoration:underline}
+.stars-dialogbox[data-drawer=true]{inset:0 0 0 auto;margin:0;width:min(450px,100vw);max-width:100vw;height:100dvh;max-height:100dvh;border-radius:0;border-width:0 0 0 1px;padding:24px;gap:20px}
+.stars-detailhead{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
+.stars-detailhead>div{min-width:0}
+.stars-detailhead h2{font-size:19px;line-height:1.35;overflow-wrap:anywhere;margin:0 0 4px}
+.stars-detailhead .stars-btn{flex:none}
+.stars-detailsection{display:grid;gap:6px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:14px;overflow-wrap:anywhere}
+.stars-detailsection h3{font-size:13px;margin:0}
+.stars-detailsection p,.stars-detailbody{margin:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
+.stars-detailfacts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 16px;margin:0}
+.stars-detailfacts dt{color:var(--dsw-alias-label-tertiary)}
+.stars-detailfacts dd{margin:0;overflow-wrap:anywhere}
+.stars-notes{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:inherit;color:var(--dsw-alias-label-secondary)}
+.stars-detailsection .stars-btn,.stars-detailsection a{justify-self:start}
+.stars-viewform{display:grid;gap:12px}
+.stars-viewform label{display:grid;gap:5px}
+.stars-viewform .stars-input{box-sizing:border-box;width:100%;min-width:0;max-width:none}
+.stars-viewform .stars-dialogactions{flex-wrap:wrap}
+.stars-viewform .stars-deleteview{margin-right:auto}
+.stars-reviewremote{grid-column:1/-1;color:var(--dsw-alias-link);font-size:11px;overflow-wrap:anywhere}
+@container stars-panel (max-width: 700px) {
+  .stars-head{flex-wrap:wrap;gap:6px 8px;padding:10px 12px}
+  .stars-headtext{flex:1 1 calc(100% - 38px)}
+  .stars-grow{display:none}
+  .stars-body{flex-direction:column}
+  .stars-main{min-height:0}
+  .stars-rail{display:flex;align-items:center;gap:3px;width:auto;padding:5px 10px;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1);overflow-x:auto}
+  .stars-railitem{flex:none;width:auto;white-space:nowrap;padding:5px 8px}
+  .stars-railgroup{flex:none;margin:0;padding:0 6px}
+  .stars-toolbar,.stars-dist,.stars-pager,.stars-foot{padding-inline:12px}
+  .stars-dist{flex-wrap:nowrap;overflow-x:auto}
+  .stars-dist>*{flex:none}
+  .stars-change{flex-wrap:wrap}
+}
+@container stars-panel (max-width: 560px) {
+  .stars-toolbar{gap:5px;padding-block:7px}
+  .stars-toolbar .stars-input{box-sizing:border-box;max-width:none;min-width:0;flex-basis:100%}
+  .stars-table,.stars-table tbody,.stars-table thead,.stars-table thead tr{display:block}
+  .stars-table thead{position:sticky;top:0;z-index:1}
+  .stars-table th{display:none}
+  .stars-table th:first-child{display:block;width:auto!important;padding:5px 12px}
+  .stars-pagechecklabel{display:inline;margin-left:6px}
+  .stars-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:start;gap:4px 6px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+  .stars-row td{padding:0;border:0;min-width:0}
+  .stars-row[data-selected=true]{background:color-mix(in srgb,var(--dsw-alias-link) 7%,transparent)}
+  .stars-row[data-selected=true] td{background:transparent}
+  .stars-row td:first-child{grid-column:1;grid-row:1 / span 3}
+  .stars-row td:nth-child(2),.stars-row td:nth-child(3){grid-column:2 / -1}
+  .stars-row td:nth-child(4){grid-column:2;align-self:center}
+  .stars-row .stars-upd{width:auto;display:flex;align-items:center;gap:6px}
+  .stars-hoveracts{position:static;transform:none;opacity:1;pointer-events:auto;background:transparent;box-shadow:none}
+  .stars-rowact{min-height:28px}
+  .stars-detailbtn{min-height:28px}
+  .stars-dialogbox[data-drawer=true]{padding:16px;gap:14px}
+}
+
 `
 
     // 面板挂在侧栏里，用户点进来之前先跟宿主热一次：/api 路由、插件实例、本地快照
     // 都在这一下里就绪，点开时直接拿这次的结果渲染首屏（省掉 1–2 秒冷启动）。
     let warmState = null
     let warmInFlight = null
+    let warmAt = 0
     function warmUp() {
       if (!warmInFlight) {
         warmInFlight = rpc({ action: 'state' })
-          .then((value) => { if (Array.isArray(value?.repos)) warmState = value })
+          .then((value) => {
+            if (Array.isArray(value?.repos)) {
+              warmState = value
+              warmAt = Date.now()
+            }
+          })
           .catch(() => {})
       }
       return warmInFlight
@@ -455,10 +530,11 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
-    async function rpc(payload) {
+    async function rpc(payload, signal) {
       const response = await fetch(RPC_PATH, {
         method: 'POST',
         credentials: 'include',
+        signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -471,6 +547,7 @@ window.__ModuleLoader__.load({
       if (!response.ok || !body?.ok) {
         const error = new Error(body?.message ?? `HTTP ${response.status}`)
         error.code = body?.code ?? 'http'
+        error.reason = body?.reason
         throw error
       }
       return body.value
@@ -498,6 +575,11 @@ window.__ModuleLoader__.load({
     const SORT_KEY = 'dsh-stars.sort'
     const SORT_FIELDS = new Set(['starred', 'pushedAt', 'stars', 'name'])
     const DEFAULT_SORT = { key: 'starred', dir: 'desc' }
+    const chipLabels = { newRelease: zh.chipNewRelease, recent: zh.chipRecent, unsorted: zh.chipUnsorted, archived: zh.chipArchived }
+    const sortLabels = {
+      'starred:desc': zh.sortStarred, 'pushedAt:desc': zh.sortPushed, 'stars:desc': zh.sortStars, 'name:asc': zh.sortName,
+      'starred:asc': '最早 star', 'pushedAt:asc': '最早更新', 'stars:asc': 'Star 数从少到多', 'name:desc': '名字从 Z 到 A',
+    }
 
     const PAGE_KEY = 'dsh-stars.pageSize'
     const PAGE_SIZES = [30, 50, 100, 200]
@@ -580,6 +662,7 @@ window.__ModuleLoader__.load({
       if (job.kind === 'unstar') return failed > 0 ? `${failed} 个仓库没能取消 star：${job.failed[0]?.message ?? ''}` : `已取消 star ${job.applied} 个`
       if (job.kind === 'deleteList') {
         if (job.meta?.deleted) return `已删除分类「${job.meta.listName}」`
+        if (job.error) return `分类已保留。${job.error.message}`
         return `还有 ${failed} 个仓库没搬完，分类未删除`
       }
       if (failed > 0) return `${failed} 个仓库同步失败：${job.failed[0]?.message ?? ''}`
@@ -600,8 +683,138 @@ window.__ModuleLoader__.load({
       }, h('path', { d: 'M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z' }))
     }
 
+    function Dialog({ children, label, wide, drawer, onClose }) {
+      const ref = React.useRef(null)
+      React.useLayoutEffect(() => {
+        const dialog = ref.current
+        const opener = document.activeElement
+        dialog.showModal()
+        return () => {
+          dialog.close()
+          if (opener?.isConnected && !dialog.contains(opener)) opener.focus({ preventScroll: true })
+        }
+      }, [])
+      return h('dialog', {
+        ref, className: 'stars-dialogbox', 'data-wide': wide, 'data-drawer': drawer, 'aria-label': label,
+        onCancel: (event) => { event.preventDefault(); onClose() },
+        onClick: (event) => {
+          if (event.target !== ref.current) return
+          const box = ref.current.getBoundingClientRect()
+          if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) onClose()
+        },
+      }, children)
+    }
+
+    function ViewEditor({ view, summary, busy, error, onSave, onDelete, onClose }) {
+      const [name, setName] = React.useState(view?.name ?? '')
+      const [copy, setCopy] = React.useState(false)
+      const [deleting, setDeleting] = React.useState(false)
+      const editing = Boolean(view && !copy)
+      if (deleting) return h(React.Fragment, null,
+        h('div', { className: 'stars-dialogtitle' }, `删除视图「${view.name}」？`),
+        h('div', { className: 'stars-plansummary' }, '收藏的仓库和 GitHub 列表会保留。'),
+        error && h('div', { role: 'alert' }, error),
+        h('div', { className: 'stars-dialogactions' },
+          h('button', { className: 'stars-btn', onClick: () => setDeleting(false) }, '返回'),
+          h('button', { className: 'stars-btn', 'data-kind': 'danger', disabled: busy, onClick: onDelete }, '确认删除视图')))
+      return h('form', { className: 'stars-viewform', onSubmit: (event) => {
+        event.preventDefault()
+        if (!busy && name.trim()) onSave(name.trim(), editing)
+      } },
+        h('div', { className: 'stars-dialogtitle' }, editing ? '编辑视图' : '保存当前视图'),
+        h('label', null, '视图名称', h('input', { className: 'stars-input', autoFocus: true, maxLength: 60,
+          required: true, value: name, onChange: (event) => setName(event.target.value) })),
+        h('div', { className: 'stars-plansummary' }, summary),
+        error && h('div', { role: 'alert' }, error),
+        h('div', { className: 'stars-dialogactions' },
+          editing && h('button', { type: 'button', className: 'stars-btn stars-deleteview', disabled: busy, onClick: () => setDeleting(true) }, '删除视图'),
+          editing && h('button', { type: 'button', className: 'stars-btn', disabled: busy, onClick: () => { setCopy(true); setName('') } }, '另存为'),
+          h('button', { type: 'button', className: 'stars-btn', onClick: onClose }, '取消'),
+          h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: !name.trim() || busy }, editing ? '更新视图' : '保存视图')))
+    }
+
+    function ReleaseNotes({ repo, viewer }) {
+      const [attempt, setAttempt] = React.useState(0)
+      const [notes, setNotes] = React.useState(null)
+      const [error, setError] = React.useState(null)
+      const tag = repo.latestRelease.tagName
+      React.useEffect(() => {
+        if (!attempt) return
+        const controller = new AbortController()
+        rpc({ action: 'releaseNotes', viewer, fullName: repo.nameWithOwner, tag }, controller.signal)
+          .then((value) => { if (!controller.signal.aborted) setNotes(value) })
+          .catch((cause) => { if (!controller.signal.aborted) setError(cause.message) })
+        return () => controller.abort()
+      }, [attempt, viewer, repo.nameWithOwner, tag])
+      const loading = attempt > 0 && !error && !notes
+      return h('section', { className: 'stars-detailsection' },
+        h('h3', null, '最新版本'),
+        h('a', { className: 'stars-repolink', href: notes?.url ?? `${repo.url}/releases/tag/${encodeURIComponent(tag)}`, target: '_blank', rel: 'noreferrer' }, tag),
+        repo.latestRelease.publishedAt && h('span', { className: 'stars-dim' }, formatDate(repo.latestRelease.publishedAt)),
+        notes ? h(React.Fragment, null,
+          notes.name && notes.name !== tag && h('strong', null, notes.name),
+          h('p', { className: 'stars-notes' }, notes.description || '这个版本没有填写发布说明。'),
+          notes.truncated && h('a', { className: 'stars-repolink', href: notes.url, target: '_blank', rel: 'noreferrer' }, '在 GitHub 阅读完整说明'))
+          : h(React.Fragment, null, error && h('p', { role: 'alert' }, error),
+            h('button', { className: 'stars-btn', disabled: loading,
+              onClick: () => { setError(null); setAttempt((n) => n + 1) } }, loading ? '正在读取发布说明…' : error ? '重试发布说明' : '查看发布说明')))
+    }
+
+    function RepoDetail({ repo, viewer, lists, suggestion, onClose }) {
+      const labels = (ids) => ids.map((id) => lists.find((list) => list.id === id)?.name ?? id).join('、')
+      const from = repo.lists ?? []
+      const to = repo.desired ?? from
+      const added = to.filter((id) => !from.includes(id))
+      const removed = from.filter((id) => !to.includes(id))
+      const facts = [['收藏于', formatDate(repo.starredAt)], ['最近推送', formatDate(repo.pushedAt)],
+        ['Star 数', (repo.stars ?? 0).toLocaleString()], ['主要语言', repo.language ?? '—']]
+      return h(Dialog, { label: '仓库详情', drawer: true, onClose },
+        h('div', { className: 'stars-detailhead' },
+          h('div', null, h('h2', null, repo.nameWithOwner),
+            h('a', { className: 'stars-repolink', href: repo.url, target: '_blank', rel: 'noreferrer' }, '在 GitHub 打开仓库')),
+          h('button', { className: 'stars-btn', onClick: onClose }, '关闭')),
+        repo.description && h('p', { className: 'stars-detailbody' }, repo.description),
+        h('dl', { className: 'stars-detailfacts' }, facts.map(([key, value]) => h(React.Fragment, { key }, h('dt', null, key), h('dd', null, value)))),
+        repo.topics?.length > 0 && h('div', { className: 'stars-topics' }, repo.topics.map((topic) => h('span', { className: 'stars-topic', key: topic }, topic))),
+        h('section', { className: 'stars-detailsection' },
+          h('h3', null, '分类归属'), h('p', null, `当前分类 · ${labels(from) || '未归类'}`),
+          added.length > 0 && h('p', null, `待加入 · ${labels(added)}`),
+          removed.length > 0 && h('p', null, `待移出 · ${labels(removed)}`),
+          suggestion && h('p', null, `命中关键词「${suggestion.keyword}」，建议归入「${suggestion.list}」。`)),
+        repo.latestRelease?.tagName ? h(ReleaseNotes, { key: repo.latestRelease.tagName, repo, viewer })
+          : h('section', { className: 'stars-detailsection' }, h('h3', null, '最新版本'), h('p', null, '暂无已发布的版本。')))
+    }
+
+    function SyncPreview({ preview, lists, disabled, canWrite, checkingRemote, onDiscard, onConfirm, onClose }) {
+      const [limit, setLimit] = React.useState(50)
+      const names = new Map(lists.map((list) => [list.id, list.name]))
+      const labels = (ids) => ids.map((id) => names.get(id) ?? id).join('、') || '未归类'
+      const clearCount = preview.plan.filter((entry) => entry.to.length === 0).length
+      const message = checkingRemote ? '正在核对 GitHub 上的分类和收藏状态…' : preview.message
+      return h(React.Fragment, null,
+        h('div', { className: 'stars-dialogtitle' }, zh.planTitle(preview.plan.length)),
+        h('div', { className: 'stars-plansummary' },
+          h('span', null, `GitHub · @${preview.viewer}`),
+          ...preview.summary.added.map(({ name, count }) => h('span', { className: 'stars-chip', key: name }, `加入 ${name} · ${count}`)),
+          clearCount > 0 && h('span', { className: 'stars-chip', 'data-tone': 'warn' }, `${clearCount} 个将移出全部分类`)),
+        message && h('div', { role: 'status' }, message),
+        h('ul', { className: 'stars-reviewlist', 'aria-label': '待写回的仓库' },
+          preview.plan.slice(0, limit).map((entry) => h('li', { key: entry.nameWithOwner, className: 'stars-reviewitem' },
+            h('span', { className: 'stars-reviewname' }, entry.nameWithOwner),
+            h('span', { className: 'stars-reviewpath', 'data-clear': entry.to.length === 0 }, `${labels(entry.from)} → ${labels(entry.to)}`),
+            preview.remoteChanges?.[entry.nameWithOwner] && h('span', { className: 'stars-reviewremote' }, preview.remoteChanges[entry.nameWithOwner]),
+            h('button', { className: 'stars-btn', disabled, 'aria-label': `撤销 ${entry.nameWithOwner} 的暂存`, onClick: () => onDiscard(entry.nameWithOwner) }, '撤销暂存')))),
+        limit < preview.plan.length && h('button', { className: 'stars-btn stars-reviewmore', onClick: () => setLimit(limit + 50) },
+          `再显示 ${Math.min(50, preview.plan.length - limit)} 条`),
+        h('div', { className: 'stars-dialogactions' },
+          h('button', { className: 'stars-btn', onClick: onClose }, '关闭'),
+          h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: disabled || !canWrite,
+            title: canWrite ? undefined : zh.syncBlocked, onClick: onConfirm }, zh.writeBack(preview.plan.length))))
+
+    }
+
     function StarsPage() {
-      const [data, setData] = React.useState(() => warmState)
+      const [data, setData] = React.useState(() => Date.now() - warmAt < 30_000 ? warmState : null)
       const [tab, setTab] = React.useState('all')
       const [query, setQuery] = React.useState('')
       const [chips, setChips] = React.useState(() => new Set())
@@ -619,11 +832,40 @@ window.__ModuleLoader__.load({
       const [job, setJob] = React.useState(null)
       const [copied, setCopied] = React.useState(false)
       const [preview, setPreview] = React.useState(null)
+      const [checkingRemote, setCheckingRemote] = React.useState(false)
       const [confirm, setConfirm] = React.useState(null)
       const [orphansOpen, setOrphansOpen] = React.useState(false)
       const [ai, setAi] = React.useState(null)
+      const [activeViewId, setActiveViewId] = React.useState(null)
+      const [viewEditor, setViewEditor] = React.useState(null)
+      const [detail, setDetail] = React.useState(null)
+      const viewerRef = React.useRef(null)
+      viewerRef.current = data?.viewer
+      const aiRequest = React.useRef(0)
       const pollingRef = React.useRef(false)
       const lastToggled = React.useRef(null)
+      const previousViewer = React.useRef(data?.viewer)
+      React.useEffect(() => {
+        if (previousViewer.current && previousViewer.current !== data?.viewer) {
+          aiRequest.current += 1
+          setAi(null)
+          setConfirm(null)
+          setPreview(null)
+          setCreating(false)
+          setTab('all')
+          setQuery('')
+          setChips(new Set())
+          setLang('all')
+          setSort(readSort())
+          setSuggestFilter(null)
+          setActiveViewId(null)
+          setViewEditor(null)
+          setDetail(null)
+          setJob(null)
+        }
+        previousViewer.current = data?.viewer
+        if (data?.viewer) warmState = null
+      }, [data?.viewer])
       const t = React.useMemo(() => (key, ...args) => {
         const value = zh[key] ?? en[key]
         return typeof value === 'function' ? value(...args) : value ?? key
@@ -632,8 +874,10 @@ window.__ModuleLoader__.load({
       const run = React.useCallback(async (payload) => {
         setBusy(true)
         setError(null)
+        setNotice(null)
         try {
-          const value = await rpc(payload)
+          const read = ['state', 'refresh', 'checkAuth'].includes(payload.action)
+          const value = await rpc(read ? payload : { viewer: viewerRef.current, ...payload })
           if (value && Array.isArray(value.repos)) setData(value)
           return value
         } catch (cause) {
@@ -696,6 +940,16 @@ window.__ModuleLoader__.load({
       const repos = data?.repos ?? []
       const suggestions = data?.suggestions ?? {}
       const currentList = lists.find((list) => list.id === tab) ?? null
+      const savedViews = data?.savedViews ?? []
+      const activeView = savedViews.find((view) => view.id === activeViewId)
+      const filters = { tab, query: query.trim(), lang, chips: [...chips].sort(), sort, suggestFilter }
+      const matchesSaved = activeView && JSON.stringify(filters) === JSON.stringify(activeView.filters)
+      const scopeName = tab === 'all' ? '全部仓库' : tab === 'unsorted' ? zh.unsorted : currentList?.name
+      const missingList = !scopeName && tab !== 'updates' && tab !== 'ops'
+      const summary = [scopeName ?? '原列表不可用', query.trim() && `搜索「${query.trim()}」`, lang !== 'all' && lang,
+        ...filters.chips.map((key) => chipLabels[key]), suggestFilter && `建议归入「${suggestFilter}」`,
+        `排序 · ${sortLabels[`${sort.key}:${sort.dir}`]}`].filter(Boolean).join(' / ')
+      const detailRepo = detail && detail.viewer === data?.viewer && repos.find((repo) => repo.nameWithOwner === detail.name)
       const orphanNames = (data?.orphans ?? []).find((entry) => entry.id === tab)?.names ?? []
 
       const inTab = React.useMemo(() => {
@@ -741,10 +995,7 @@ window.__ModuleLoader__.load({
       const selectedOffPage = Math.max(0, selected.size - pageRows.filter((repo) => selected.has(repo.nameWithOwner)).length)
 
       const unread = data?.updatesUnread ?? 0
-      // 更新页只显示「当前跟踪的仓库」：取消跟踪后它以前的条目也一并离开视野，
-      // 这样这一页的语义和标签一致（历史条目仍留在 state 里，只是不再展示）。
-      const watchedSet = new Set(data?.watched ?? [])
-      const updates = (data?.updates ?? []).filter((entry) => !entry.nameWithOwner || watchedSet.has(entry.nameWithOwner))
+      const updates = data?.updates ?? []
       const ops = data?.ops ?? []
       const watchedCount = (data?.watched ?? []).length
       const pendingCount = repos.filter((repo) => repo.pending?.add?.length || repo.pending?.remove?.length).length
@@ -770,7 +1021,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         setSelected(new Set())
         lastToggled.current = null
-      }, [tab, query, chips, lang])
+      }, [tab, query, chips, lang, suggestFilter, data?.viewer])
 
       // 换分类、改搜索、改筛选、改排序、改每页条数都回到第一页，否则会停在一个空页上。
       React.useEffect(() => {
@@ -814,6 +1065,55 @@ window.__ModuleLoader__.load({
         setNotice({ tone: 'ok', text: `已暂存，记得点「${t('sync')}」写回 GitHub` })
       }
 
+      const openSavedView = (view) => {
+        const f = view.filters
+        setActiveViewId(view.id)
+        setTab(f.tab)
+        setQuery(f.query)
+        setChips(new Set(f.chips))
+        setLang(f.lang)
+        setSort(f.sort)
+        setSuggestFilter(f.suggestFilter)
+        setSelected(new Set())
+        setPage(0)
+      }
+
+      const openTab = (key) => {
+        if (activeView) {
+          setQuery('')
+          setChips(new Set())
+          setLang('all')
+          setSort(readSort())
+        }
+        setActiveViewId(null)
+        setTab(key)
+        setSelected(new Set())
+        setSuggestFilter(null)
+      }
+
+      const changeSort = (next) => {
+        setSort(next)
+        if (!activeView) writeSort(next)
+      }
+
+      const changeView = async (action, name, editing) => {
+        const { view, viewer } = viewEditor
+        try {
+          const value = await run({ action, viewer, name, filters,
+            id: editing ? view.id : undefined, revision: editing ? view.revision : undefined })
+          if (viewer !== viewerRef.current) return
+          setActiveViewId(value.savedViewId ?? null)
+          setViewEditor(null)
+          setNotice({ tone: 'ok', text: action === 'saveView' ? `已保存视图「${name}」` : `已删除视图「${view.name}」` })
+        } catch (cause) {
+          if (cause.code === 'conflict') {
+            setViewEditor(null)
+            await run({ action: 'state' })
+            setNotice({ tone: 'error', text: cause.message })
+          }
+        }
+      }
+
       const acceptSuggestion = async (repo) => {
         const suggestion = suggestions[repo.nameWithOwner]
         if (!suggestion?.list) return
@@ -848,31 +1148,70 @@ window.__ModuleLoader__.load({
         setPreview(value)
       }
 
-      const confirmSync = async () => {
-        const expected = preview?.plan?.length ?? 0
+      const renewPreview = async (cause) => {
+        if (cause.code !== 'conflict') throw cause
         setPreview(null)
+        const state = await run({ action: 'state' })
+        if (state.viewer === preview.viewer) {
+          const next = await run({ action: 'plan', viewer: preview.viewer })
+          if (next.plan.length) {
+            const changes = {}
+            if (cause.reason === 'remote-lists') {
+              const before = new Map(preview.plan.map((row) => [row.itemId, row.from]))
+              const label = (id) => state.lists.find((list) => list.id === id)?.name ?? lists.find((list) => list.id === id)?.name ?? id
+              for (const row of next.plan) {
+                const original = before.get(row.itemId)
+                if (!original) continue
+                const added = row.from.filter((id) => !original.includes(id)).map(label)
+                const removed = original.filter((id) => !row.from.includes(id)).map(label)
+                changes[row.nameWithOwner] = [added.length && `GitHub 已加入「${added.join('、')}」`,
+                  removed.length && `GitHub 已移出「${removed.join('、')}」`].filter(Boolean).join('，')
+              }
+            }
+            setPreview({ ...next, message: cause.message, remoteChanges: changes })
+            return
+          }
+        }
+        setNotice({ tone: cause.reason === 'remote-lists' ? 'ok' : 'error', text: cause.message })
+      }
+
+      const confirmSync = async () => {
+        setCheckingRemote(true)
         try {
-          await startAndFollow(await run({ action: 'sync', expectCount: expected }))
+          const value = await run({ action: 'sync', viewer: preview.viewer, planVersion: preview.planVersion, expectCount: preview.plan.length })
+          setPreview(null)
+          await startAndFollow(value)
         } catch (cause) {
-          if (cause?.code === 'conflict') setNotice({ tone: 'error', text: cause.message })
-          else throw cause
+          await renewPreview(cause)
+        } finally {
+          setCheckingRemote(false)
+        }
+      }
+
+      const discardPending = async (fullName) => {
+        try {
+          const value = await run({ action: 'discardPending', viewer: preview.viewer, planVersion: preview.planVersion, fullName })
+          setPreview(value.preview.plan.length ? value.preview : null)
+          setNotice({ tone: 'ok', text: `已撤销 ${fullName} 的暂存` })
+        } catch (cause) {
+          await renewPreview(cause)
         }
       }
 
       const askUnstar = (names) => {
         if (!names.length) return
-        setConfirm({ type: 'unstar', names })
+        setConfirm({ type: 'unstar', names, viewer: data.viewer })
       }
 
       const doUnstar = async () => {
         const names = confirm?.names ?? []
         setConfirm(null)
-        const value = await run({ action: 'unstar', fullNames: names })
+        const value = await run({ action: 'unstar', fullNames: names, viewer: confirm.viewer })
         setSelected(new Set())
         await startAndFollow(value)
       }
 
-      const askDeleteList = (list) => setConfirm({ type: 'deleteList', list, mode: 'unsorted', targetListId: '' })
+      const askDeleteList = (list) => setConfirm({ type: 'deleteList', list, viewer: data.viewer, mode: 'unsorted', targetListId: '' })
 
       const doDeleteList = async () => {
         const dialog = confirm
@@ -880,6 +1219,7 @@ window.__ModuleLoader__.load({
         const value = await run({
           action: 'deleteList',
           listId: dialog.list.id,
+          viewer: dialog.viewer,
           mode: dialog.mode,
           targetListId: dialog.mode === 'move' ? dialog.targetListId : undefined,
         })
@@ -887,13 +1227,29 @@ window.__ModuleLoader__.load({
         await startAndFollow(value)
       }
 
-      const runAi = async (mode, scope) => {
-        setAi({ phase: 'running', mode })
+      const runAi = async (mode, scope, previous) => {
+        const request = ++aiRequest.current
+        const fullNames = previous?.failedBatches.flatMap((batch) => batch.repos)
+        const viewer = previous?.viewer ?? viewerRef.current
+        setAi({ phase: 'running', mode, count: fullNames?.length ?? (scope === 'all' ? repos.length : unsortedCount) })
         try {
-          const result = await run({ action: 'organize', mode, scope })
-          setAi({ phase: 'result', mode, result })
+          const next = await run({ action: 'organize', mode, scope, fullNames, viewer })
+          if (request !== aiRequest.current || viewerRef.current !== viewer) return
+          if (previous) {
+            const groups = new Map()
+            for (const group of [...previous.groups, ...next.groups]) {
+              const key = group.name.toLowerCase()
+              if (groups.has(key)) groups.get(key).repos.push(...group.repos)
+              else groups.set(key, { ...group, repos: [...group.repos] })
+            }
+            next.groups = [...groups.values()]
+            next.unsorted = [...previous.unsorted, ...next.unsorted]
+            next.unchanged = [...(previous.unchanged ?? []), ...(next.unchanged ?? [])]
+            next.total = previous.total
+          }
+          setAi({ phase: 'result', mode, result: next })
         } catch (cause) {
-          setAi(null)
+          if (request === aiRequest.current) setAi(previous ? { phase: 'result', mode, result: previous } : null)
           throw cause
         }
       }
@@ -908,6 +1264,7 @@ window.__ModuleLoader__.load({
         if (!result) return
         const value = await run({
           action: 'organizeApply',
+          viewer: result.viewer,
           mode: ai.mode,
           groups: result.groups,
           unsorted: result.unsorted,
@@ -958,14 +1315,15 @@ window.__ModuleLoader__.load({
       const scopeMissing = authState === 'missing-user-scope'
       const authCommand = data.auth?.command ?? ''
 
-      const gotoUpdates = () => { setTab('updates'); setSelected(new Set()) }
+      const gotoUpdates = () => openTab('updates')
 
       const head = h('div', { className: 'stars-head' },
         h('span', { className: 'stars-headicon' }, h(StarIcon, { size: 18 })),
         h('div', { className: 'stars-headtext' },
           h('div', { className: 'stars-title' }, t('title')),
           h('div', { className: 'stars-meta' },
-            h('span', null, data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)}` : t('never')),
+            data.viewer && h('span', null, `@${data.viewer} · `),
+            h('span', null, data.refreshing ? t('refreshing') : data.snapshotAt ? `${t('snapshotAt')} ${relative(data.snapshotAt)}` : t('never')),
             h('span', { className: 'stars-metasep' }, '·'),
             h('span', null, `${data.repos.length} 个 star`),
             watchedCount > 0
@@ -990,8 +1348,8 @@ window.__ModuleLoader__.load({
         h('button', { className: 'stars-btn', disabled: busy || syncing, onClick: () => run({ action: 'refresh' }).catch(() => {}) }, busy || syncing ? '…' : t('refresh')),
         h('button', {
           className: 'stars-btn',
-          disabled: busy || syncing || pendingCount === 0 || authBlocked || scopeMissing,
-          title: authBlocked || scopeMissing ? t('syncBlocked') : undefined,
+          disabled: busy || syncing || pendingCount === 0,
+          title: '查看待写回的分类改动',
           onClick: () => openPreview().catch(() => {}),
         }, syncing
           ? `${t('syncing')} ${job.done}/${job.total}`
@@ -1039,12 +1397,13 @@ window.__ModuleLoader__.load({
           job.current ? h('span', { className: 'stars-progresscurrent', title: job.current }, t('progressCurrent', job.current)) : null)
         : null
 
-      const railItem = (key, label, count, options = {}) => h('div', {
+      const railItem = (key, label, count, options = {}) => h('button', {
+        type: 'button', 'aria-current': !matchesSaved && tab === key ? 'page' : undefined,
         key,
         className: 'stars-railitem',
-        'data-active': String(tab === key),
+        'data-active': String(!matchesSaved && tab === key),
         title: options.title,
-        onClick: () => { setTab(key); setSelected(new Set()) },
+        onClick: () => openTab(key),
       },
       options.icon
         ? h('span', { className: 'stars-railicon' }, options.icon)
@@ -1062,16 +1421,23 @@ window.__ModuleLoader__.load({
         // 「更新」的徽标是未读数（只算跟踪的仓库）；「操作记录」没有未读，显示总条数。
         railItem('updates', t('updates'), unread > 0 ? unread : null, { icon: '⚑', tone: 'unread', title: t('updatesHint') }),
         railItem('ops', t('ops'), ops.length, { icon: '≡', title: t('opsSummary', ops.length) }),
+        savedViews.length > 0 && h('div', { className: 'stars-railgroup' }, '已保存的视图'),
+        ...savedViews.map((view) => h('button', { key: view.id, type: 'button', className: 'stars-railitem', title: view.name,
+          'aria-current': matchesSaved && view.id === activeViewId ? 'page' : undefined,
+          'data-active': String(Boolean(matchesSaved && view.id === activeViewId)),
+          onClick: () => openSavedView(view) }, h('span', { className: 'stars-railicon', 'aria-hidden': true }, '▤'),
+          h('span', { className: 'stars-railitemlabel' }, view.name))),
         h('div', { className: 'stars-railgroup' }, t('lists')),
         ...lists.map((list) => railItem(list.id, list.name, list.count ?? 0, { color: colorOf(list.name) })),
-        h('div', {
-          className: 'stars-railitem',
+        h('button', {
+          type: 'button', className: 'stars-railitem',
           onClick: () => { setCreating(true); setNewListName('') },
         }, h('span', { style: { color: 'var(--dsw-alias-brand-primary)' } }, `+ ${t('createList')}`)))
 
       const chipButton = (key, label) => h('button', {
         key,
         className: 'stars-chipbtn',
+        'aria-pressed': chips.has(key),
         'data-active': String(chips.has(key)),
         onClick: () => setChips((prev) => {
           const next = new Set(prev)
@@ -1087,20 +1453,16 @@ window.__ModuleLoader__.load({
         value: `${sort.key}:${sort.dir}`,
         onChange: (event) => {
           const [key, dir] = event.target.value.split(':')
-          const next = { key, dir }
-          setSort(next)
-          writeSort(next)
+          changeSort({ key, dir })
         },
       },
-      h('option', { value: 'starred:desc' }, t('sortStarred')),
-      h('option', { value: 'pushedAt:desc' }, t('sortPushed')),
-      h('option', { value: 'stars:desc' }, t('sortStars')),
-      h('option', { value: 'name:asc' }, t('sortName')))
+      ...Object.entries(sortLabels).map(([value, label]) => h('option', { key: value, value }, label)))
 
       const toolbar = tab === 'updates' || tab === 'ops' ? null : h('div', { className: 'stars-toolbar' },
         h('input', {
           className: 'stars-input',
           placeholder: t('search'),
+          'aria-label': t('search'),
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
@@ -1108,10 +1470,17 @@ window.__ModuleLoader__.load({
         chipButton('recent', t('chipRecent')),
         chipButton('unsorted', t('chipUnsorted')),
         chipButton('archived', t('chipArchived')),
-        h('select', { className: 'stars-select', value: lang, onChange: (event) => setLang(event.target.value) },
+        h('select', { className: 'stars-select', 'aria-label': '语言筛选', value: lang, onChange: (event) => setLang(event.target.value) },
           h('option', { value: 'all' }, t('languageAll')),
+          lang !== 'all' && !languages.includes(lang) && h('option', { value: lang }, lang),
           ...languages.map((name) => h('option', { key: name, value: name }, name))),
         sortSelect,
+        h('button', { className: 'stars-btn', disabled: !data.viewer || busy,
+          onClick: () => { setError(null); setViewEditor({ viewer: data.viewer, view: activeView }) } },
+        activeView ? matchesSaved ? '编辑视图' : '更新视图' : '保存视图'),
+        activeView && h('span', { className: 'stars-selinfo', role: 'status' }, `匹配 ${shown.length} 个仓库`),
+        suggestFilter && !distribution.some(([name]) => name === suggestFilter) && h('button', {
+          className: 'stars-chipbtn', onClick: () => setSuggestFilter(null) }, `清除建议筛选「${suggestFilter}」`),
         selected.size > 0
           ? h(React.Fragment, null,
             h('span', { className: 'stars-selinfo' },
@@ -1128,7 +1497,7 @@ window.__ModuleLoader__.load({
             },
             h('option', { value: '' }, t('addTo')),
             ...lists.map((list) => h('option', { key: list.id, value: list.id }, list.name))),
-            tab !== 'all' && tab !== 'unsorted'
+            currentList
               ? h('button', { className: 'stars-btn', onClick: () => stage([...selected], { remove: [tab] }).catch(() => {}) }, t('removeFrom'))
               : null,
             h('button', {
@@ -1203,10 +1572,13 @@ window.__ModuleLoader__.load({
           },
         },
           h('td', { style: { width: 28 } },
-            h('input', { className: 'stars-cb', type: 'checkbox', checked: selected.has(repo.nameWithOwner), onChange: (event) => toggle(repo.nameWithOwner, index, event) })),
+            h('input', { className: 'stars-cb', type: 'checkbox', 'aria-label': `选择 ${repo.nameWithOwner}`, checked: selected.has(repo.nameWithOwner), onChange: (event) => toggle(repo.nameWithOwner, index, event) })),
           h('td', null,
             h('div', { className: 'stars-repo' },
-              h('a', { className: 'stars-repolink', href: repo.url, target: '_blank', rel: 'noreferrer' }, repo.nameWithOwner),
+              h('div', { className: 'stars-repotitle' },
+                h('a', { className: 'stars-repolink', href: repo.url, target: '_blank', rel: 'noreferrer' }, repo.nameWithOwner),
+                h('button', { className: 'stars-detailbtn', 'aria-label': `查看 ${repo.nameWithOwner} 的详情`,
+                  onClick: () => setDetail({ viewer: data.viewer, name: repo.nameWithOwner }) }, '详情')),
               repo.description ? h('div', { className: 'stars-desc' }, repo.description) : null,
               (repo.topics ?? []).length
                 ? h('div', { className: 'stars-topics' }, ...repo.topics.slice(0, 6).map((topic) => h('span', { className: 'stars-topic', key: topic }, topic)))
@@ -1253,32 +1625,35 @@ window.__ModuleLoader__.load({
 
       const sortTh = (key, label, extraClass) => h('th', {
         className: `stars-sortth${extraClass ? ` ${extraClass}` : ''}`,
+        'aria-sort': sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined,
+      }, h('button', { type: 'button', className: 'stars-sortbutton',
         onClick: () => {
           const next = sort.key === key
             ? { key, dir: sort.dir === 'desc' ? 'asc' : 'desc' }
             : { key: key === 'name' ? 'name' : key, dir: key === 'name' ? 'asc' : 'desc' }
-          setSort(next)
-          writeSort(next)
+          changeSort(next)
         },
-      }, h('span', null, label), sort.key === key ? h('span', { className: 'stars-sortmark' }, sort.dir === 'desc' ? '▼' : '▲') : null)
+      }, h('span', null, label), sort.key === key ? h('span', { className: 'stars-sortmark' }, sort.dir === 'desc' ? '▼' : '▲') : null))
 
       const table = h('div', { className: 'stars-scroll' },
         shown.length === 0
-          ? h('div', { className: 'stars-empty' }, query ? t('emptySearch') : t('empty'))
+          ? missingList
+            ? h('div', { className: 'stars-emptyhint' }, '这个视图引用的列表已不可用。',
+              h('button', { className: 'stars-btn', onClick: () => setTab('all') }, '改用全部仓库'))
+            : h('div', { className: 'stars-empty' }, query || chips.size || lang !== 'all' || suggestFilter ? t('emptySearch') : t('empty'))
           : h('table', { className: 'stars-table' },
             h('thead', null, h('tr', null,
-              h('th', { style: { width: 28 } }, h('input', {
+              h('th', { style: { width: 28 } }, h('label', null, h('input', {
                 className: 'stars-cb',
                 type: 'checkbox',
                 title: allPageSelected ? t('clearPage') : t('selectAllPage', pageRows.length),
                 checked: allPageSelected,
                 onChange: toggleAll,
-              })),
+              }), h('span', { className: 'stars-pagechecklabel' }, '选择本页'))),
               sortTh('name', t('name')),
               h('th', null, t('type')),
               sortTh('stars', t('stars')),
-              sortTh('pushedAt', t('updated'), 'stars-upd'),
-              h('th', { style: { width: 92 } }, ''))),
+              sortTh('pushedAt', t('updated'), 'stars-upd'))),
             h('tbody', null, ...pageRows.map((repo, index) => row(repo, pageStart + index)))))
 
       const pager = tab === 'updates' || tab === 'ops' || shown.length === 0 ? null : h('div', { className: 'stars-pager' },
@@ -1299,19 +1674,21 @@ window.__ModuleLoader__.load({
 
       const foot = h('div', { className: 'stars-foot' },
         h('span', null, `${repos.length} 个 star · ${lists.length} 个列表 · ${unsortedCount} 个未归类`),
-        data.lastViewedAt ? h('span', null, `${t('lastViewed')} ${relative(data.lastViewedAt)}`) : null,
+        data.updatesViewedAt ? h('span', null, `${t('lastViewed')} ${relative(data.updatesViewedAt)}`) : null,
         data.viewer ? h('a', { className: 'stars-repolink', style: { fontSize: 11, marginLeft: 'auto' }, href: `https://github.com/stars/${data.viewer}/lists`, target: '_blank', rel: 'noreferrer' }, t('openOnGithub')) : null,
         data.error ? h('span', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, `${data.error.code}: ${data.error.message}`) : null)
 
-        const closeDialog = () => { setCreating(false); setPreview(null); setConfirm(null); setAi(null) }
+      const closeDialog = () => { aiRequest.current += 1; setCreating(false); setPreview(null); setConfirm(null); setAi(null) }
 
       const aiGroups = ai?.phase === 'result' ? (ai.result?.groups ?? []) : []
       const aiCount = aiGroups.reduce((sum, group) => sum + group.repos.length, 0)
+        + (ai?.mode === 'rebuild' ? ai.result?.unsorted?.length ?? 0 : 0)
+      const failedBatches = ai?.result?.failedBatches ?? []
 
       const dialogBody = ai?.phase === 'running'
         ? h(React.Fragment, null,
           h('div', { className: 'stars-dialogtitle' }, t('organizeRunning')),
-          h('div', { className: 'stars-plansummary' }, t('organizeRunningHint', ai.result?.total ?? (unsortedCount || repos.length))),
+          h('div', { className: 'stars-plansummary' }, t('organizeRunningHint', ai.count)),
           h('div', { className: 'stars-dialogactions' },
             h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel'))))
         : ai?.phase === 'result'
@@ -1326,8 +1703,12 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'stars-dim', style: { marginLeft: 'auto' } }, t('organizeRepos', group.repos.length)),
                   h('span', { className: 'stars-repolist' }, group.repos.slice(0, 4).join('、'))))),
             (ai.result?.unsorted ?? []).length > 0
-              ? h('div', { className: 'stars-plansummary' }, t('organizeUnsorted', ai.result.unsorted.length))
+              ? h('div', { className: 'stars-plansummary' }, ai.mode === 'rebuild' ? `将移到未归类 · ${ai.result.unsorted.length} 个` : t('organizeUnsorted', ai.result.unsorted.length))
               : null,
+            ai.result?.unchanged?.length > 0 && h('div', { className: 'stars-plansummary' }, `${ai.result.unchanged.length} 个仓库保留原分类`),
+            failedBatches.length > 0 && h('div', { role: 'status', className: 'stars-plansummary' },
+              h('span', null, `${failedBatches.reduce((n, batch) => n + batch.repos.length, 0)} 个仓库整理失败，保留原分类。${failedBatches[0].message}`),
+              h('button', { className: 'stars-btn', disabled: busy, onClick: () => runAi(ai.mode, ai.result.scope, ai.result).catch(() => {}) }, '重试失败仓库')),
             ai.result?.model
               ? h('div', { className: 'stars-dim', style: { fontSize: 11 } }, t('organizeBy', ai.result.provider, ai.result.model))
               : null,
@@ -1362,19 +1743,11 @@ window.__ModuleLoader__.load({
             h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
             h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: !newListName.trim() || busy, onClick: () => createList().catch(() => {}) }, t('create'))))
         : preview
-          ? h(React.Fragment, null,
-            h('div', { className: 'stars-dialogtitle' }, t('planTitle', preview.plan.length)),
-            h('div', { className: 'stars-plansummary' },
-              ...(preview.summary?.added ?? []).map((entry) => h('span', { className: 'stars-chip', key: entry.name }, `${entry.name} ← ${entry.count} 个`)),
-              preview.summary?.removed > 0 ? h('span', { className: 'stars-chip', 'data-tone': 'warn' }, t('planRemoved', preview.summary.removed)) : null),
-            h('div', { className: 'stars-planlist' },
-              ...preview.plan.slice(0, 50).map((entry) => h('div', { className: 'stars-planrow', key: entry.nameWithOwner },
-                h('span', { className: 'stars-repolink' }, entry.nameWithOwner),
-                h('span', { className: 'stars-dim' }, `${(entry.from ?? []).map((id) => lists.find((list) => list.id === id)?.name ?? id).join('、') || '未归类'} → ${(entry.to ?? []).map((id) => lists.find((list) => list.id === id)?.name ?? id).join('、') || '未归类'}`))),
-              preview.plan.length > 50 ? h('div', { className: 'stars-dim' }, t('planMore', preview.plan.length - 50)) : null),
-            h('div', { className: 'stars-dialogactions' },
-              h('button', { className: 'stars-btn', onClick: closeDialog }, t('cancel')),
-              h('button', { className: 'stars-btn', 'data-kind': 'primary', disabled: busy, onClick: () => confirmSync().catch(() => {}) }, t('writeBack', preview.plan.length))))
+          ? h(SyncPreview, {
+            preview, lists, checkingRemote, disabled: busy || syncing || checkingRemote, canWrite: !authBlocked && !scopeMissing,
+            onDiscard: (name) => discardPending(name).catch(() => {}),
+            onConfirm: () => confirmSync().catch(() => {}), onClose: closeDialog,
+          })
           : confirm?.type === 'unstar'
             ? h(React.Fragment, null,
               h('div', { className: 'stars-dialogtitle' }, t('unstarTitle', confirm.names.length)),
@@ -1418,16 +1791,17 @@ window.__ModuleLoader__.load({
               : null
 
       const dialog = dialogBody
-        ? h('div', { className: 'stars-dialog', onClick: closeDialog },
-          h('div', { className: 'stars-dialogbox', onClick: (event) => event.stopPropagation() }, dialogBody))
+        ? h(Dialog, { label: preview ? '同步预览' : (ai || confirm?.type === 'organize') ? 'AI 整理' : creating ? '新建分类' : '确认操作',
+          wide: Boolean(preview), onClose: closeDialog }, dialogBody,
+          error && h('div', { role: 'alert', className: 'stars-plansummary' }, error))
         : null
 
       return h('div', { className: 'stars-root' },
         head,
         authCard,
         progressStrip,
-        (notice || error) ? h('div', { className: 'stars-banner', 'data-tone': notice?.tone ?? 'error' },
-          h('span', null, notice?.text ?? `${t('errorPrefix')}：${error}`),
+        (notice || error) ? h('div', { className: 'stars-banner', 'data-tone': error ? 'error' : notice?.tone },
+          h('span', null, error ? `${t('errorPrefix')}：${error}` : notice?.text),
           h('button', { className: 'stars-btn', style: { marginLeft: 'auto', height: 22 }, onClick: () => { setNotice(null); setError(null) } }, '×')) : null,
         h('div', { className: 'stars-body' },
           rail,
@@ -1447,6 +1821,12 @@ window.__ModuleLoader__.load({
                   : null)
               : null)),
         foot,
+        detailRepo && h(RepoDetail, { key: detailRepo.id, repo: detailRepo, viewer: data.viewer, lists,
+          suggestion: suggestions[detailRepo.nameWithOwner], onClose: () => setDetail(null) }),
+        viewEditor?.viewer && viewEditor.viewer === data.viewer && h(Dialog, { label: '保存视图', onClose: () => setViewEditor(null) },
+          h(ViewEditor, { view: viewEditor.view, summary, busy, error, onClose: () => setViewEditor(null),
+            onSave: (name, editing) => changeView('saveView', name, editing).catch(() => {}),
+            onDelete: () => changeView('deleteView', null, true).catch(() => {}) })),
         dialog)
     }
 

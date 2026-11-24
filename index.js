@@ -5,14 +5,21 @@
  * 走 `ctx.connection.fetch`（Owner Peer + Host/Origin 栅栏），不额外开端口，
  * 也不把 GitHub token 交给浏览器。
  */
+import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { GitHub, GitHubError } from './src/github.js'
-import { Store } from './src/store.js'
+import { Store, desiredLists } from './src/store.js'
+import { deleteView, saveView } from './src/saved-views.js'
 import { DEFAULT_RULES, suggestAll } from './src/classify.js'
 import { MAX_REPOS_PER_CALL, askModel, buildPrompt, extractJson, normalizePlan, pickModel } from './src/organize.js'
 
 const ROUTE = '/api/dsh-stars'
+const REMOTE_WRITES = new Set(['sync', 'unstar', 'deleteList', 'removeOrphan', 'createList', 'acceptSuggestions', 'organizeApply'])
+
+function sameViewer(a, b) {
+  return typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
+}
 const DEFAULT_MIN_REFRESH_MS = 10 * 60 * 1000
 /** 同步写回 GitHub 的并发数：86 条串行要 1 分钟，4 并发够快又不会触发二级限流。 */
 const DEFAULT_SYNC_CONCURRENCY = 4
@@ -36,7 +43,7 @@ function json(status, body) {
 }
 
 function describe(error) {
-  if (error instanceof GitHubError) return { code: error.code, message: error.message }
+  if (error instanceof GitHubError) return { code: error.code, message: error.message, reason: error.details?.reason }
   return { code: 'internal', message: error?.message ?? String(error) }
 }
 
@@ -55,19 +62,34 @@ export function apply(ctx, config = {}) {
   /** 同一时间只允许一次抓取；面板反复刷新时复用同一个 Promise。 */
   let inFlight = null
   let lastError = null
+  let preparingWrite = false
+  let writeRevision = 0
+  let retryRefreshAt = 0
+  let needsRefresh = false
   /**
    * gh 的登录状态。陌生人第一次打开面板时最常见的卡点不是 bug 而是没登录/缺 user scope，
    * 所以把它当成一等状态暴露给面板，而不是等抓取失败再报一句看不懂的错。
    */
   let auth = null
   let authAt = 0
+  let authPending = null
   const AUTH_TTL_MS = 30_000
 
   async function probeAuth(force = false) {
     if (!force && auth && Date.now() - authAt < AUTH_TTL_MS) return auth
-    auth = await github.probeAuth()
-    authAt = Date.now()
-    return auth
+    if (!force && authPending) return authPending
+    const request = github.probeAuth()
+    authPending = request
+    try {
+      const status = await request
+      if (authPending === request) {
+        auth = status
+        authAt = Date.now()
+      }
+      return status
+    } finally {
+      if (authPending === request) authPending = null
+    }
   }
   /**
    * 作业（job）：一次「已经在跟 GitHub 对话」的批量执行，带进度与失败清单。
@@ -138,34 +160,49 @@ export function apply(ctx, config = {}) {
           running.failed.push({ nameWithOwner: null, ...describe(error) })
         }
       }
-      running.running = false
       running.current = null
       running.finishedAt = new Date().toISOString()
       try {
         await store.save()
       } catch {
-        // 收尾落盘失败不影响已经写回 GitHub 的结果。
+        // 每条成功的写入已单独落盘。
       }
+      running.running = false
     }
   }
 
-  function refresh() {
-    if (!inFlight) {
-      inFlight = (async () => {
-        try {
-          const fetched = await github.fetchAll()
-          store.applyFetch(fetched, { staleDays })
-          await store.save()
-          lastError = null
-        } catch (error) {
-          lastError = describe(error)
-          throw error
-        } finally {
-          inFlight = null
+  function refresh(client) {
+    const viewer = store.state.viewer
+    if (inFlight && inFlight.viewer === viewer && inFlight.revision === writeRevision) return inFlight.promise
+    const request = { viewer, revision: writeRevision }
+    inFlight = request
+    needsRefresh = false
+    request.promise = (async () => {
+      try {
+        const fetched = await client.fetchAll()
+        if (inFlight !== request) return
+        if (request.revision !== writeRevision) {
+          needsRefresh = true
+          return
         }
-      })()
-    }
-    return inFlight
+        if (viewer && !sameViewer(viewer, fetched.viewer)) {
+          throw new GitHubError('conflict', '抓取期间 GitHub 账号已变化，请重新刷新')
+        }
+        store.applyFetch(fetched, { staleDays })
+        await store.save()
+        lastError = null
+        retryRefreshAt = 0
+      } catch (error) {
+        if (inFlight === request && request.revision === writeRevision) {
+          lastError = describe(error)
+          retryRefreshAt = Date.now() + 30_000
+        }
+        throw error
+      } finally {
+        if (inFlight === request) inFlight = null
+      }
+    })()
+    return request.promise
   }
 
   function view() {
@@ -186,48 +223,31 @@ export function apply(ctx, config = {}) {
   }
 
   async function readState({ force = false } = {}) {
-    await store.load()
-    // 同步进行中不重抓：抓回来的 Lists 归属还是旧的，会把面板状态抖回去。
-    if (jobRunning()) return view()
-    const hasCache = (store.state.order ?? []).length > 0
-    const snapshotAt = store.state.snapshotAt
-    const stale = !snapshotAt || Date.now() - Date.parse(snapshotAt) > Math.max(0, minRefreshMs)
-
-    if (force) {
-      await probeAuth(true)
-      try {
-        await refresh()
-      } catch {
-        // 抓取失败时继续用旧快照，错误通过 view().error 暴露给面板。
-      }
-      return view()
-    }
-
-    if (hasCache) {
-      // 有快照就先把快照给出去（毫秒级），过期与否都放后台刷新：
-      // 面板秒开，数字随后自己更新，用户不用对着空白等 5–10 秒。
-      if (stale) {
-        void probeAuth().catch(() => {})
-        if (!inFlight) refresh().catch(() => {})
-      }
-      return view()
-    }
-
-    // 第一次用没有快照，只能等这一轮；先确认 gh 可用，避免白等。
-    const status = await probeAuth()
+    if (jobRunning() || preparingWrite) return view()
+    const status = await probeAuth(force)
+    if (jobRunning() || preparingWrite || status !== auth) return view()
     if (status.state === 'no-gh' || status.state === 'not-logged-in') {
-      if (!lastError) {
-        lastError = {
-          code: 'unauthenticated',
-          message: status.state === 'no-gh' ? '找不到 gh 命令' : 'gh 还没有登录',
-        }
-      }
+      lastError = { code: 'unauthenticated', message: status.state === 'no-gh' ? '找不到 gh 命令' : 'gh 还没有登录' }
       return view()
     }
-    try {
-      await refresh()
-    } catch {
-      // 同上：失败时交出空快照 + error。
+    const login = status.login
+    if (login && store.selectViewer(login)) {
+      inFlight = null
+      job = null
+      needsRefresh = false
+      retryRefreshAt = 0
+      lastError = null
+    }
+    const snapshotAt = store.state.snapshotAt
+    const stale = needsRefresh || !snapshotAt || Date.now() - Date.parse(snapshotAt) > Math.max(0, minRefreshMs)
+    if (force || !snapshotAt) {
+      try {
+        await refresh(login ? github.forAccount(login) : github)
+      } catch {
+        // 保留缓存，通过 view().error 告知刷新失败。
+      }
+    } else if (stale && Date.now() >= retryRefreshAt) {
+      void refresh(login ? github.forAccount(login) : github).catch(() => {})
     }
     return view()
   }
@@ -253,22 +273,63 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  async function startSync({ dryRun = false, expectCount } = {}) {
-    await store.load()
-    const status = await probeAuth()
-    // 缺 user scope 时写回必然 403，提前说清楚比跑到一半失败好。
-    if (status.state === 'missing-user-scope') {
-      throw new GitHubError('scope', 'gh token 缺少 user scope，先运行 gh auth refresh -h github.com -s user；只读和暂存不受影响')
+  function planVersion(plans) {
+    const labels = new Map(store.state.lists.map((list) => [list.id, list.name]))
+    const memberships = (ids) => [...ids].sort().map((id) => [id, labels.get(id)])
+    const rows = plans.map(({ itemId, nameWithOwner, from, to }) => [
+      itemId, nameWithOwner, memberships(from), memberships(to),
+    ]).sort((a, b) => a[1].localeCompare(b[1]))
+    return createHash('sha256').update(JSON.stringify([store.state.viewer, rows])).digest('hex')
+  }
+
+  function previewPlan() {
+    const plan = store.planSync()
+    return { plan, summary: summarizePlan(plan), planVersion: planVersion(plan), viewer: store.state.viewer }
+  }
+
+  function checkPlan(version, plans) {
+    if (typeof version !== 'string') {
+      throw new GitHubError('conflict', '请重新打开同步预览，并使用本次预览的 planVersion')
     }
-    if (jobRunning()) {
-      if (job.kind === 'sync') return jobSnapshot()
-      throw new GitHubError('busy', '有别的作业在跑，等它结束再同步')
+    if (version !== planVersion(plans)) {
+      throw new GitHubError('conflict', '暂存内容已变化，请重新核对同步预览')
     }
-    const plans = store.planSync()
-    // 预览层打开后用户可能又改了暂存：按旧条数写回等于写到用户没看过的状态。
+  }
+
+  async function readCatalog(client) {
+    const catalog = await client.fetchLists()
+    if (!sameViewer(catalog.viewer, store.state.viewer) || !catalog.listsComplete) {
+      throw new GitHubError('unavailable', '无法核对当前账号的完整分类，暂存已保留')
+    }
+    return catalog
+  }
+
+  async function startSync(client, { dryRun = false, expectCount, planVersion: expectedVersion } = {}) {
+    if (auth?.state === 'missing-user-scope') {
+      throw new GitHubError('scope', 'gh token 缺少 user scope，先运行 gh auth refresh -h github.com -s user')
+    }
+    let plans = store.planSync()
+    if (!dryRun && (expectedVersion !== undefined || expectCount !== undefined)) checkPlan(expectedVersion, plans)
     if (Number.isInteger(expectCount) && expectCount !== plans.length) {
       await store.save()
       throw new GitHubError('conflict', `预览时是 ${expectCount} 条，现在变成 ${plans.length} 条，请重新看一遍预览再写回`)
+    }
+    if (!dryRun && plans.length) {
+      const version = planVersion(plans)
+      const [catalog, starred] = await Promise.all([
+        readCatalog(client), client.fetchStarredItems(plans.map((plan) => plan.itemId)),
+      ])
+      if (plans.some((plan) => starred.get(plan.itemId) !== plan.nameWithOwner)) {
+        await refresh(client)
+        throw new GitHubError('conflict', '仓库的名称或收藏状态已变化，请核对刷新后的暂存')
+      }
+      store.applyLists(catalog)
+      plans = store.planSync()
+      if (version !== planVersion(plans)) {
+        await store.save()
+        const message = plans.length ? 'GitHub 上的分类已变化，请核对合并后的归属' : '已核对 GitHub 的最新分类，当前没有需要写回的改动'
+        throw new GitHubError('conflict', message, { reason: 'remote-lists' })
+      }
     }
     if (dryRun || plans.length === 0) {
       await store.save()
@@ -290,26 +351,80 @@ export function apply(ctx, config = {}) {
       label: (plan) => plan.nameWithOwner,
       describe: (plan) => ({ nameWithOwner: plan.nameWithOwner }),
       run: async (plan) => {
-        await github.setItemLists(plan.itemId, plan.to)
+        await client.setItemLists(plan.itemId, plan.to)
         store.markSynced(plan.nameWithOwner, plan.to)
       },
       finish: async (running) => {
         if (running.applied > 0) store.pushOp('sync', {}, `写回 GitHub：${running.applied} 个仓库的分类`)
       },
-    })
+    }, { planVersion: planVersion(plans) })
     return jobSnapshot()
   }
 
   async function dispatch(payload) {
     const action = typeof payload?.action === 'string' ? payload.action : ''
+    await store.load()
+    if (payload?.viewer != null && !sameViewer(payload.viewer, store.state.viewer)) {
+      throw new GitHubError('conflict', '面板所属的 GitHub 账号已变化，请刷新后再操作')
+    }
+    if (!REMOTE_WRITES.has(action)) {
+      if ((preparingWrite || jobRunning()) && ['stage', 'discardPending', 'organize'].includes(action)) {
+        throw new GitHubError('busy', '有作业正在执行，请等进度结束后再改归类')
+      }
+      return handleAction(action, payload)
+    }
+    if (preparingWrite || jobRunning()) {
+      if (action === 'sync' && jobRunning() && job.kind === 'sync'
+        && (!payload.planVersion || payload.planVersion === job.meta.planVersion)) return view()
+      throw new GitHubError('busy', '有作业正在执行，请等进度结束后再操作')
+    }
+    // 先占用写入位置，再等待认证和远端成员预检。
+    preparingWrite = true
+    writeRevision += 1
+    try {
+      const status = await probeAuth(true)
+      if (!status.login || !['ok', 'missing-user-scope'].includes(status.state)) {
+        throw new GitHubError('unauthenticated', '请先重新检查 gh 登录状态')
+      }
+      if (!sameViewer(store.state.viewer, status.login)) {
+        throw new GitHubError('conflict', 'gh 登录账号已变化，请刷新面板后再操作。原账号的暂存已保留')
+      }
+      return await handleAction(action, payload, github.forAccount(status.login))
+    } finally {
+      preparingWrite = false
+    }
+  }
+
+  async function handleAction(action, payload, client) {
     switch (action) {
       case 'state':
         return readState({ force: Boolean(payload.force) })
       case 'refresh':
         return readState({ force: true })
+      case 'saveView':
+      case 'deleteView': {
+        if (!sameViewer(payload.viewer, store.state.viewer)) throw new GitHubError('conflict', '请刷新并确认视图所属的账号')
+        const id = action === 'saveView' ? saveView(store.state, payload) : deleteView(store.state, payload)
+        await store.save()
+        if (!sameViewer(payload.viewer, store.state.viewer)) throw new GitHubError('conflict', '面板所属账号已变化，请刷新视图')
+        return { ...view(), savedViewId: id }
+      }
+      case 'releaseNotes': {
+        const viewer = store.state.viewer
+        if (!sameViewer(payload.viewer, viewer)) throw new GitHubError('conflict', '请重新打开当前账号的仓库详情')
+        const repo = store.state.repos[payload.fullName]
+        if (!repo?.id || !payload.tag || payload.tag !== repo.latestRelease?.tagName) {
+          throw new GitHubError('conflict', '仓库或版本已变化，请刷新仓库详情')
+        }
+        const status = await probeAuth(true)
+        if (!['ok', 'missing-user-scope'].includes(status.state) || !sameViewer(status.login, viewer)) {
+          throw new GitHubError('conflict', '请检查当前 GitHub 账号并刷新面板')
+        }
+        const release = await github.forAccount(viewer).fetchRelease(repo.id, payload.tag)
+        if (!sameViewer(store.state.viewer, viewer)) throw new GitHubError('conflict', '面板所属账号已变化')
+        return release
+      }
       case 'stage': {
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改归类')
         const touched = store.stage(payload.fullNames, { add: payload.add, remove: payload.remove })
         if (touched > 0) {
           const listName = (id) => store.state.lists.find((list) => list.id === id)?.name
@@ -325,8 +440,6 @@ export function apply(ctx, config = {}) {
       }
       case 'acceptSuggestions': {
         // 只做暂存：把每条建议落到对应列表的 pending.add 上，写回 GitHub 仍要用户点一次「同步」。
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改归类')
         const suggestions = suggestAll(store.view().repos, rules)
         const byName = new Map(store.state.lists.map((list) => [list.name, list.id]))
         const groups = new Map()
@@ -336,14 +449,15 @@ export function apply(ctx, config = {}) {
           const repo = store.state.repos[fullName]
           if (!repo) continue
           // 已经归过类（或已在待同步队列里）的仓库不强行塞第二个分类。
-          if ((repo.lists ?? []).length > 0 || (repo.pending?.add ?? []).length > 0) {
+          if (desiredLists(repo).length > 0) {
             kept += 1
             continue
           }
           let listId = byName.get(suggestion.list)
           if (!listId) {
-            const list = await github.createList(suggestion.list, 'dsh-stars 自动创建')
+            const list = await client.createList(suggestion.list, 'dsh-stars 自动创建')
             store.setList(list)
+            await store.save()
             byName.set(list.name, list.id)
             listId = list.id
             created += 1
@@ -362,7 +476,6 @@ export function apply(ctx, config = {}) {
         return { created, staged, kept, ...view() }
       }
       case 'watch': {
-        await store.load()
         const names = [...new Set((payload.fullNames ?? []).filter((name) => typeof name === 'string'))]
         if (names.length === 0) throw new GitHubError('invalid', '没有要跟踪的仓库')
         const watch = Boolean(payload.watch)
@@ -370,24 +483,19 @@ export function apply(ctx, config = {}) {
         await store.save()
         return view()
       }
-      case 'plan': {
-        // 只读：给预览层用。planSync 会顺手清掉「其实是 noop」的暂存，所以照样落盘。
-        await store.load()
-        const plans = store.planSync()
+      case 'plan':
+        return previewPlan()
+      case 'discardPending': {
+        checkPlan(payload.planVersion, store.planSync())
+        store.discardPending(String(payload.fullName ?? ''))
         await store.save()
-        return { plan: plans, summary: summarizePlan(plans) }
+        return { ...view(), preview: previewPlan() }
       }
       case 'sync': {
-        // 立刻返回 job（running=true），写回在后台继续；面板用 progress 轮询。
-        const started = await startSync({
-          dryRun: Boolean(payload.dryRun),
-          expectCount: Number.isInteger(payload.expectCount) ? payload.expectCount : undefined,
-        })
+        const started = await startSync(client, payload)
         return { ...view(), job: started, syncJob: started }
       }
       case 'unstar': {
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再取消 star')
         const names = [...new Set((payload.fullNames ?? []).filter((name) => typeof name === 'string'))]
         const targets = []
         for (const name of names) {
@@ -401,7 +509,7 @@ export function apply(ctx, config = {}) {
           label: (target) => target.nameWithOwner,
           describe: (target) => ({ nameWithOwner: target.nameWithOwner }),
           run: async (target) => {
-            await github.removeStar(target.itemId)
+            await client.removeStar(target.itemId)
             // 远端成功后本地立刻生效：用户点完就该看到它消失，而不是等下次刷新。
             store.dropRepo(target.nameWithOwner)
             store.markUnstarred(target.nameWithOwner)
@@ -411,30 +519,29 @@ export function apply(ctx, config = {}) {
         return { ...view(), job: jobSnapshot() }
       }
       case 'deleteList': {
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再删分类')
         const listId = String(payload.listId ?? '')
         const mode = payload.mode === 'move' ? 'move' : 'unsorted'
         const targetListId = mode === 'move' ? String(payload.targetListId ?? '') : ''
         const cached = store.state.lists.find((item) => item.id === listId)
         if (!cached) throw new GitHubError('invalid', '分类不存在，刷新一次再试')
-        if (mode === 'move' && (!targetListId || targetListId === listId)) {
+        if (mode === 'move' && (targetListId === listId || !store.state.lists.some((item) => item.id === targetListId))) {
           throw new GitHubError('invalid', '要移入的目标分类不对')
         }
         // 成员的真相在 GitHub：本地快照可能落后（在网页上往分类里加过仓库），
         // 所以删分类前先取一次远端成员，别按旧列表「空分类」直接删掉、把成员变成孤儿。
-        const remote = await github.fetchListMembers(listId)
-        const list = remote ?? cached
-        const members = remote ? remote.repos : cached.repos ?? []
-        const remoteIds = remote?.itemIds ?? {}
-        const targets = members.map((name) => {
-          const repo = store.state.repos[name]
-          const itemId = remoteIds[name] ?? cached.itemIds?.[name] ?? repo?.id
+        const catalog = await readCatalog(client)
+        store.applyLists(catalog)
+        await store.save()
+        const remote = store.state.lists.find((entry) => entry.id === listId)
+        if (!remote) throw new GitHubError('conflict', '分类已变化，请刷新后重试')
+        if (mode === 'move' && !store.state.lists.some((entry) => entry.id === targetListId)) {
+          throw new GitHubError('conflict', '目标分类已删除，请重新选择')
+        }
+        const list = remote
+        const targets = list.repos.map((name) => {
+          const itemId = list.itemIds[name]
           if (!itemId) throw new GitHubError('invalid', `${name} 缺少 node id，刷新一次再试`)
-          const current = new Set([
-            ...(repo?.lists ?? []),
-            ...store.state.lists.filter((item) => (item.repos ?? []).includes(name)).map((item) => item.id),
-          ])
+          const current = new Set(store.state.lists.filter((item) => item.repos.includes(name)).map((item) => item.id))
           current.delete(listId)
           if (mode === 'move') current.add(targetListId)
           return { nameWithOwner: name, itemId, next: [...current] }
@@ -443,8 +550,8 @@ export function apply(ctx, config = {}) {
           label: (target) => target.nameWithOwner,
           describe: (target) => ({ nameWithOwner: target.nameWithOwner }),
           run: async (target) => {
-            await github.setItemLists(target.itemId, target.next)
-            store.applyListRemoval(target.nameWithOwner, listId, mode === 'move' ? targetListId : null)
+            await client.setItemLists(target.itemId, target.next)
+            store.applyListRemoval(target.nameWithOwner, listId, mode === 'move' ? targetListId : null, target.itemId)
           },
           // 成员全部搬走后才删分类：顺序颠倒会留下悬空 id（v0.1 踩过）。
           finish: async (running) => {
@@ -452,48 +559,48 @@ export function apply(ctx, config = {}) {
               running.meta = { ...running.meta, deleted: false, listId, listName: list.name }
               return
             }
-            await github.deleteList(listId)
+            const remaining = await client.fetchListMembers(listId)
+            if (remaining?.repos.length) throw new GitHubError('conflict', '分类又有了成员，请刷新后重新确认删除')
+            if (remaining) await client.deleteList(listId)
             store.removeList(listId)
-            store.pushOp('deleteList', {}, `删除分类「${list.name}」${mode === 'move' ? `，成员移入「${store.state.lists.find((item) => item.id === targetListId)?.name ?? targetListId}」` : '，成员变未归类'}`)
+            store.pushOp('deleteList', {}, `删除分类「${list.name}」${mode === 'move' ? `，成员移入「${store.state.lists.find((item) => item.id === targetListId)?.name ?? targetListId}」` : '，保留成员的其他归属'}`)
             running.meta = { ...running.meta, deleted: true, listId, listName: list.name }
           },
         }, { listId, listName: list.name, mode, targetListId: targetListId || null })
         return { ...view(), job: jobSnapshot() }
       }
       case 'removeOrphan': {
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改')
         const listId = String(payload.listId ?? '')
         const fullName = String(payload.fullName ?? '')
+        const cached = store.state.lists.find((entry) => entry.id === listId)
+        const expected = cached?.itemIds?.[fullName]
+        if (store.state.repos[fullName] || !cached?.repos.includes(fullName)) {
+          throw new GitHubError('conflict', '这个仓库已不在当前孤儿成员中，请刷新分类')
+        }
+        const catalog = await readCatalog(client)
+        store.applyLists(catalog)
+        await store.save()
         const list = store.state.lists.find((item) => item.id === listId)
-        if (!list) throw new GitHubError('invalid', '分类不存在，刷新一次再试')
-        const itemId = list.itemIds?.[fullName] ?? store.state.repos[fullName]?.id
+        if (!list?.repos.includes(fullName)) return view()
+        const itemId = list.itemIds?.[fullName]
         if (!itemId) throw new GitHubError('invalid', `${fullName} 缺少 node id，刷新一次再试`)
+        if (expected && itemId !== expected) throw new GitHubError('conflict', '同名仓库已经更换，请刷新分类')
+        if ((await client.fetchStarredItems([itemId])).has(itemId)) {
+          await refresh(client)
+          throw new GitHubError('conflict', '这个仓库已经重新收藏，请核对它的分类')
+        }
         const current = store.state.lists
           .filter((item) => (item.repos ?? []).includes(fullName))
           .map((item) => item.id)
           .filter((id) => id !== listId)
-        await github.setItemLists(itemId, current)
+        await client.setItemLists(itemId, current)
         store.applyListRemoval(fullName, listId)
         await store.save()
         return view()
       }
-      case 'checkAuth': {
-        await store.load()
-        const status = await probeAuth(true)
-        if (status.state === 'ok') lastError = null
-        // 刚在终端里登录完就点「重新检查」时，顺便把数据抓回来。
-        if (status.state === 'ok') {
-          try {
-            await refresh()
-          } catch {
-            // 抓取失败照旧走 view().error。
-          }
-        }
-        return view()
-      }
+      case 'checkAuth':
+        return readState({ force: true })
       case 'progress': {
-        await store.load()
         const running = jobSnapshot()
         // 跑完就把完整视图带回去，面板可以一次性换成作业结束后的状态。
         if (running?.running) return { job: running, syncJob: running }
@@ -501,13 +608,13 @@ export function apply(ctx, config = {}) {
       }
       case 'organize': {
         // 只出方案，不写任何东西：用户看一眼再去「应用到暂存」。
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再整理')
         const mode = payload.mode === 'rebuild' ? 'rebuild' : 'reuse'
         const scope = payload.scope === 'all' ? 'all' : 'unsorted'
-        const repoList = Object.values(store.state.repos)
+        const viewer = store.state.viewer
+        const requested = Array.isArray(payload.fullNames) ? new Set(payload.fullNames) : null
+        const repoList = Object.values(store.state.repos).filter((repo) => !requested || requested.has(repo.nameWithOwner))
         const candidates = (scope === 'all' ? repoList : repoList.filter((repo) =>
-          (repo.lists ?? []).length === 0 && !(repo.pending?.add ?? []).length))
+          desiredLists(repo).length === 0))
           .map((repo) => ({
             nameWithOwner: repo.nameWithOwner,
             description: repo.description ?? '',
@@ -516,23 +623,31 @@ export function apply(ctx, config = {}) {
             stars: repo.stars ?? 0,
           }))
         if (candidates.length === 0) {
-          return { mode, scope, provider: null, model: null, groups: [], unsorted: [], dropped: 0, total: 0, note: '没有需要整理的仓库' }
+          return { viewer, mode, scope, provider: null, model: null, groups: [], unsorted: [], unchanged: [], failedBatches: [], dropped: 0, total: 0, note: '没有需要整理的仓库' }
         }
+        const lists = store.state.lists.map((list) => ({ name: list.name, count: list.repos?.length ?? 0 }))
         const llm = ctx.get('llm')
         const route = await pickModel(llm, { provider: organizeProvider ?? undefined, model: organizeModel ?? undefined })
         if (!route) {
           throw new GitHubError('model', '没有可用的模型路由：先在 DSH 里配置一个 LLM 提供商，或关掉「AI 整理」改用关键词建议')
         }
-        const lists = store.state.lists.map((list) => ({ name: list.name, count: list.repos?.length ?? 0 }))
         const batches = Math.ceil(candidates.length / MAX_REPOS_PER_CALL)
-        const merged = { groups: [], unsorted: [] }
+        const merged = { groups: [], unsorted: [], unchanged: [], failedBatches: [], dropped: 0 }
         for (let batch = 0; batch < batches; batch += 1) {
           const slice = candidates.slice(batch * MAX_REPOS_PER_CALL, (batch + 1) * MAX_REPOS_PER_CALL)
+          if (!sameViewer(viewer, store.state.viewer)) throw new GitHubError('conflict', '整理期间账号已变化，请重新开始')
           const prompt = buildPrompt({ repos: slice, lists, mode, batch: batch + 1, batches })
-          const { text } = await askModel({ llm, provider: route.provider, model: route.model, prompt })
-          const plan = normalizePlan(extractJson(text), { repos: slice, lists: store.state.lists, mode })
-          merged.groups.push(...plan.groups)
-          merged.unsorted.push(...plan.unsorted)
+          try {
+            const { text } = await askModel({ llm, provider: route.provider, model: route.model, prompt })
+            const plan = normalizePlan(extractJson(text), { repos: slice, lists, mode })
+            merged.groups.push(...plan.groups)
+            merged.unsorted.push(...plan.unsorted)
+            merged.unchanged.push(...plan.unchanged)
+            merged.dropped += plan.dropped
+          } catch (error) {
+            merged.failedBatches.push({ repos: slice.map((repo) => repo.nameWithOwner), message: describe(error).message })
+          }
+          if (!sameViewer(viewer, store.state.viewer)) throw new GitHubError('conflict', '整理期间账号已变化，请重新开始')
         }
         // 跨批合并同名分类（模型分批时可能各起一个名字）。
         const byName = new Map()
@@ -558,57 +673,63 @@ export function apply(ctx, config = {}) {
           model: route.model,
           groups,
           unsorted: merged.unsorted,
-          dropped: 0,
+          unchanged: merged.unchanged,
+          failedBatches: merged.failedBatches,
+          dropped: merged.dropped,
+          viewer,
           total: candidates.length,
         }
       }
       case 'organizeApply': {
         // 把方案落成暂存：新建缺的分类，其余只改 pending；写回 GitHub 仍要用户点同步。
-        await store.load()
-        if (jobRunning()) throw new GitHubError('busy', '有作业正在跟 GitHub 通信，等进度跑完再改归类')
         const mode = payload.mode === 'rebuild' ? 'rebuild' : 'reuse'
         const groups = Array.isArray(payload.groups) ? payload.groups : []
         let created = 0
         let touched = 0
+        const assignments = []
         for (const group of groups) {
           const name = String(group?.name ?? '').trim()
-          const names = (Array.isArray(group?.repos) ? group.repos : []).map(String)
+          const names = (Array.isArray(group?.repos) ? group.repos : []).filter((fullName) => {
+            const repo = store.state.repos[fullName]
+            return repo && (mode === 'rebuild' || desiredLists(repo).length === 0)
+          })
           if (!name || names.length === 0) continue
           let list = store.state.lists.find((item) => item.name.toLowerCase() === name.toLowerCase())
           if (!list) {
             // 分类描述统一打上来源标记，GitHub Lists 页里一眼能看出是插件建的。
-            const made = await github.createList(name, 'dsh-stars 自动创建')
+            const made = await client.createList(name, 'dsh-stars 自动创建')
             store.setList(made)
+            await store.save()
             created += 1
             list = made
           }
+          assignments.push({ listId: list.id, names })
+        }
+        for (const { listId, names } of assignments) {
           const others = mode === 'rebuild'
-            ? store.state.lists.filter((item) => item.id !== list.id).map((item) => item.id)
+            ? store.state.lists.filter((item) => item.id !== listId).map((item) => item.id)
             : []
-          touched += store.stage(names, { add: [list.id], remove: others })
+          touched += store.stage(names, { add: [listId], remove: others })
         }
         if (mode === 'rebuild' && Array.isArray(payload.unsorted)) {
           const clear = store.state.lists.map((item) => item.id)
           touched += store.stage(payload.unsorted.map(String), { add: [], remove: clear })
         }
-        await store.save()
         store.pushOp('organize', {}, `AI 整理：${touched} 个仓库进暂存${created > 0 ? `，新建 ${created} 个分类` : ''}`)
         await store.save()
         return { touched, created, ...view() }
       }
       case 'createList': {
-        await store.load()
         const name = String(payload.name ?? '').trim()
         if (!name) throw new GitHubError('invalid', '列表名不能为空')
         const note = String(payload.description ?? '').trim() || 'dsh-stars 自动创建'
-        const created = await github.createList(name, note, Boolean(payload.isPrivate))
+        const created = await client.createList(name, note, Boolean(payload.isPrivate))
         store.setList(created)
         store.pushOp('createList', {}, `新建分类「${name}」`)
         await store.save()
-        return view()
+        return { ...view(), createdListId: created.id }
       }
       case 'markViewed': {
-        await store.load()
         store.markViewed()
         await store.save()
         return view()
@@ -632,7 +753,7 @@ export function apply(ctx, config = {}) {
     } catch (error) {
       const detail = describe(error)
       // 409 用于「预览之后暂存又变了」，前端据此让用户重新看一遍预览。
-      const status = detail.code === 'unauthenticated' ? 401 : detail.code === 'conflict' ? 409 : 400
+      const status = detail.code === 'unauthenticated' ? 401 : ['conflict', 'busy'].includes(detail.code) ? 409 : 400
       ctx.logger?.warn?.(`dsh-stars: ${detail.code} ${detail.message}`)
       return json(status, { ok: false, ...detail })
     }

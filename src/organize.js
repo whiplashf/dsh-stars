@@ -81,6 +81,9 @@ export function extractJson(text) {
  * 纯函数，返回 `{ groups, unsorted, dropped }`。
  */
 export function normalizePlan(parsed, { repos, lists = [], mode = 'reuse' }) {
+  if (!Array.isArray(parsed?.groups) || (parsed.unsorted !== undefined && !Array.isArray(parsed.unsorted))) {
+    throw new GitHubError('model', '模型返回的分类方案不完整')
+  }
   const known = new Set(repos.map((repo) => repo.nameWithOwner))
   const existingNames = new Map(lists.map((list) => [list.name.toLowerCase(), list.name]))
   const seen = new Set()
@@ -121,7 +124,13 @@ export function normalizePlan(parsed, { repos, lists = [], mode = 'reuse' }) {
     unsorted.push(fullName)
   }
   const unassigned = repos.map((repo) => repo.nameWithOwner).filter((fullName) => !seen.has(fullName))
-  return { groups, unsorted: unsorted.length ? unsorted : unassigned, dropped }
+  const explicit = new Set(unsorted)
+  return {
+    groups,
+    unsorted: mode === 'rebuild' ? unsorted : unassigned,
+    unchanged: mode === 'rebuild' ? unassigned.filter((name) => !explicit.has(name)) : [],
+    dropped,
+  }
 }
 
 /** 取模型的一次完整输出：`ctx.llm` 的流按 text-delta 累积，只接受正常结束。 */
@@ -144,6 +153,9 @@ export async function askModel({ llm, provider, model, prompt, maxTokens = 4000,
     }
   } finally {
     clearTimeout(timer)
+  }
+  if (['length', 'max-tokens', 'max_tokens'].includes(reason?.kind ?? reason)) {
+    throw new GitHubError('model', '模型输出达到长度上限')
   }
   if (reason && reason.kind === 'error') throw new GitHubError('model', '模型调用失败')
   if (reason && reason.kind === 'aborted') throw new GitHubError('model', '模型调用被中断')

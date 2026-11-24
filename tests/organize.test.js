@@ -58,13 +58,13 @@ test('normalizePlan 复用现有分类名的大小写，并裁掉超长分类名
   assert.ok(plan.groups[1].name.length <= 24)
 })
 
-test('normalizePlan 把没归类的仓库补进 unsorted，并限制分类数', () => {
+test('normalizePlan 限制分类数，重整时未明确分配的仓库保留原归属', () => {
   const wide = Array.from({ length: 20 }, (_, index) => ({ nameWithOwner: `x/r${index}`, description: '', topics: [], language: 'Go', stars: 1 }))
   const many = Array.from({ length: MAX_GROUPS + 3 }, (_, index) => ({ list: `类${index}`, repos: [`x/r${index}`] }))
   const plan = normalizePlan({ groups: many }, { repos: wide, mode: 'rebuild' })
   assert.equal(plan.groups.length, MAX_GROUPS)
-  // 被截掉的分类里的仓库回到 unsorted，而不是凭空消失。
-  assert.equal(plan.unsorted.length, 20 - MAX_GROUPS)
+  assert.deepEqual(plan.unsorted, [])
+  assert.equal(plan.unchanged.length, 20 - MAX_GROUPS)
   const empty = normalizePlan({ groups: [] }, { repos })
   assert.deepEqual(empty.unsorted, ['a/llm-kit', 'b/music', 'c/quant'])
 })

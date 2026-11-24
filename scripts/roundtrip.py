@@ -1,101 +1,87 @@
 #!/usr/bin/env python3
-"""真实写回往返验证（会真的改 GitHub Lists，再删掉临时列表）。
+"""验证一次真实的 GitHub Lists 加入、移出和清理操作。
 
-前置：插件已安装、面板可用、gh token 带 user scope。
-用法：
-  DSH_BASE=https://192.168.31.212:3080 DSH_COOKIE=cookie.txt python3 scripts/roundtrip.py
-
-cookie 从静态 token 换：GET $DSH_BASE/?token=$DSH_WEB_STATIC_TOKEN
-（token 在 ~/.dsh/web-token.env），返回 303 的 set-cookie 即登录态。
+DSH_BASE、DSH_COOKIE（会话文件路径）、DSH_RT_REPO（已收藏的 owner/repo）指定测试目标。
+使用自签名证书的宿主可以通过 DSH_CA_FILE 指定 CA 文件。
 """
 import json
 import os
-import subprocess
-import sys
+import ssl
 import time
-
-BASE = os.environ.get('DSH_BASE', 'https://192.168.31.212:3080')
-COOKIE_FILE = os.environ.get('DSH_COOKIE', '/home/massiwei/tmp/cookie.txt')
-REPO = os.environ.get('DSH_RT_REPO', 'backnotprop/plannotator')
-LIST = 'dsh-stars 同步测试'
-
-
-def api(payload):
-    cookie = open(COOKIE_FILE).read().strip()
-    out = subprocess.run(
-        ['curl', '-s', '-k', '-X', 'POST', f'{BASE}/api/dsh-stars', '-H', f'Cookie: {cookie}',
-         '-H', 'content-type: application/json', '-d', json.dumps(payload)],
-        capture_output=True, text=True,
-    ).stdout
-    return json.loads(out)
+import uuid
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
-def sync_and_wait():
-    """先看预览（plan），再带 expectCount 启动 sync，轮询 progress 直到 running=false。"""
-    planned = api({'action': 'plan'})
-    if not planned.get('ok'):
-        sys.exit(f"plan 失败：{planned}")
-    expected = len(planned['value']['plan'])
-    started = api({'action': 'sync', 'expectCount': expected})
-    if not started.get('ok'):
-        sys.exit(f"sync 失败：{started}")
-    job = started['value'].get('job') or started['value'].get('syncJob')
-    while job and job.get('running'):
+def api(action, **fields):
+    request = Request(
+        os.environ['DSH_BASE'].rstrip('/') + '/api/dsh-stars',
+        data=json.dumps({'action': action, **fields}).encode(),
+        headers={'Cookie': Path(os.environ['DSH_COOKIE']).read_text().strip(), 'Content-Type': 'application/json'},
+    )
+    try:
+        with urlopen(request, context=ssl.create_default_context(cafile=os.getenv('DSH_CA_FILE')), timeout=120) as response:
+            result = json.load(response)
+    except HTTPError as error:
+        result = json.load(error)
+    if not result.get('ok'):
+        raise RuntimeError(result.get('message') or result.get('error'))
+    return result['value']
+
+
+def wait_job(response, viewer, kind):
+    job = response['job']
+    while job and job['running']:
         time.sleep(0.4)
-        value = api({'action': 'progress'})['value']
-        job = value.get('job') or value.get('syncJob')
-    return job or {}
+        job = api('progress', viewer=viewer)['job']
+    if not job or job['kind'] != kind or job['failed'] or job.get('error'):
+        raise RuntimeError(f'作业未成功完成 {job}')
+    return job
 
 
-def gh(query, variables=None):
-    out = subprocess.run(
-        ['gh', 'api', 'graphql', '--input', '-'],
-        input=json.dumps({'query': query, 'variables': variables or {}}),
-        capture_output=True, text=True,
-    ).stdout
-    return json.loads(out)
+def sync_one(viewer, repo, before, after):
+    preview = api('plan', viewer=viewer)
+    plan = preview['plan']
+    if len(plan) != 1 or plan[0]['nameWithOwner'] != repo or set(plan[0]['from']) != before or set(plan[0]['to']) != after:
+        raise RuntimeError('暂存中出现了探针以外的改动，已停止同步')
+    job = wait_job(api('sync', viewer=viewer, expectCount=1, planVersion=preview['planVersion']), viewer, 'sync')
+    if job['applied'] != 1:
+        raise RuntimeError('探针未写回')
 
 
-def repo_row(state):
-    for repo in state['value']['repos']:
-        if repo['nameWithOwner'] == REPO:
-            return {'lists': repo['lists'], 'pending': repo['pending'], 'desired': repo['desired']}
-    return None
+def read_memberships(viewer, repo):
+    state = api('refresh', viewer=viewer)
+    if state.get('error') or state['viewer'] != viewer:
+        raise RuntimeError('刷新账号或远端快照失败')
+    return set(next(row['lists'] for row in state['repos'] if row['nameWithOwner'] == repo))
 
 
 def main():
-    state = api({'action': 'refresh'})
-    if not state.get('ok'):
-        sys.exit(f"state 失败：{state}")
-    names = {item['id']: item['name'] for item in state['value']['lists']}
-    existing = [item for item in state['value']['lists'] if item['name'] == LIST]
-    if existing:
-        list_id = existing[0]['id']
-    else:
-        created = api({'action': 'createList', 'name': LIST, 'description': '临时，验证后删除'})
-        if not created.get('ok'):
-            sys.exit(f"createList 失败：{created}")
-        list_id = [item['id'] for item in created['value']['lists'] if item['name'] == LIST][0]
-    print('临时列表', list_id)
-
-    api({'action': 'stage', 'fullNames': [REPO], 'add': [list_id]})
-    job = sync_and_wait()
-    print('加入 → applied', job.get('applied'), 'failed', job.get('failed'))
-    print('本地', repo_row(api({'action': 'state'})))
-
-    node = gh('query($id:ID!){node(id:$id){... on UserList{items(first:10){totalCount nodes{... on Repository{nameWithOwner}}}}}}', {'id': list_id})
-    print('GitHub', json.dumps(node.get('data', {}).get('node'), ensure_ascii=False))
-
-    api({'action': 'stage', 'fullNames': [REPO], 'add': [], 'remove': [list_id]})
-    job = sync_and_wait()
-    print('移出 → applied', job.get('applied'))
-
-    node = gh('query($id:ID!){node(id:$id){... on UserList{items(first:10){totalCount}}}}', {'id': list_id})
-    print('GitHub 剩余', json.dumps(node.get('data', {}).get('node'), ensure_ascii=False))
-
-    print('删除列表', json.dumps(gh('mutation($id:ID!){deleteUserList(input:{listId:$id}){clientMutationId}}', {'id': list_id}), ensure_ascii=False))
-    print('当前列表', [item['name'] for item in api({'action': 'refresh'})['value']['lists']])
-    print('仓库归属', repo_row(api({'action': 'state'})))
+    repo = os.environ['DSH_RT_REPO']
+    state = api('state')
+    viewer = state['viewer']
+    if not viewer or api('plan', viewer=viewer)['plan']:
+        raise RuntimeError('验证需要已登录的账号和空的待同步队列')
+    before = read_memberships(viewer, repo)
+    name = 'dsh-stars-rt-' + uuid.uuid4().hex[:10]
+    created = api('createList', viewer=viewer, name=name, description='dsh-stars 往返验证')
+    list_id = created['createdListId']
+    try:
+        after = before | {list_id}
+        api('stage', viewer=viewer, fullNames=[repo], add=[list_id])
+        sync_one(viewer, repo, before, after)
+        if read_memberships(viewer, repo) != after:
+            raise RuntimeError('加入后的 GitHub 归属与预期不符')
+        api('stage', viewer=viewer, fullNames=[repo], remove=[list_id])
+        sync_one(viewer, repo, after, before)
+        if read_memberships(viewer, repo) != before:
+            raise RuntimeError('移出后的 GitHub 归属与原始归属不符')
+    finally:
+        result = wait_job(api('deleteList', viewer=viewer, listId=list_id, mode='unsorted'), viewer, 'deleteList')
+        if not result['meta'].get('deleted'):
+            raise RuntimeError(f'临时列表清理失败 {name}')
+    print(f'通过 · {viewer} · {repo} · 已还原归属并删除临时列表 {name}')
 
 
 if __name__ == '__main__':

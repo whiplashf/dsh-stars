@@ -379,3 +379,22 @@ test('view：孤儿成员 = 分类成员里不在 star 快照里的仓库', asyn
   // 只报有孤儿的分类：空分类不占位，客户端不用再过滤。
   assert.deepEqual(view.orphans, [{ id: 'L1', names: ['a/orphan'] }])
 })
+
+test('不完整的分类快照保留未知归属及暂存，完整刷新才清理失效目标', async (t) => {
+  const store = await makeStore(t)
+  const name = 'a/project'
+  const repos = [repo(name)]
+  const visible = { id: 'L1', name: 'One', repos: [name] }
+  const hidden = { id: 'L2', name: 'Two', repos: [name] }
+  seed(store, repos, [visible, hidden, { id: 'L3', name: 'Three', repos: [] }])
+  store.stage([name], { add: ['L3'] })
+  store.applyFetch({ repos, lists: [visible], listsComplete: false })
+  assert.deepEqual(store.planSync()[0].to, ['L1', 'L2', 'L3'])
+  await store.save()
+  const reopened = new Store(store.file)
+  await Promise.all([reopened.load(), reopened.load()])
+  assert.deepEqual(reopened.planSync()[0].to, ['L1', 'L2', 'L3'])
+  reopened.applyFetch({ repos, lists: [visible], listsComplete: true })
+  assert.deepEqual(reopened.planSync(), [])
+  assert.deepEqual(reopened.view().repos[0].desired, ['L1'])
+})
